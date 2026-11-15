@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#05080f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Nightwire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage">
+    <canvas id="bgDay" class="bg"></canvas>
+    <canvas id="bgNight" class="bg"></canvas>
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+      <div class="pill" id="dayPill">
+        <svg id="icoSun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><g stroke-width="2" stroke-linecap="round"><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></g></svg>
+        <svg id="icoMoon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+        <span id="dayTxt">STAGE 1</span>
+      </div>
+      <div class="pill strikes" id="strikeBadge" title="Airstrikes">
+        <svg viewBox="0 0 24 24"><path d="M21 12.5 13 10V5.2c0-.9-.5-1.7-1-1.7s-1 .8-1 1.7V10l-8 2.5v1.8l8-1.5V18l-2.2 1.6V21l3.2-.9 3.2.9v-1.4L13 18v-5.2l8 1.5z"/></svg>
+        <span id="strikeTxt">0</span>
+      </div>
+      <div class="score"><span class="lbl">SCORE</span><span id="scoreTxt">0</span></div>
+      <button id="muteBtn" class="iconbtn" aria-label="Sound">
+        <svg id="icoSnd" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="w" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+      </button>
+    </div>
+
+    <div id="toast"></div>
+    <div id="banner"><div class="b1" id="b1"></div><div class="b2" id="b2"></div></div>
+
+    <button id="strikeBtn" aria-label="Call airstrike">
+      <svg viewBox="0 0 24 24"><path d="M21 12.5 13 10V5.2c0-.9-.5-1.7-1-1.7s-1 .8-1 1.7V10l-8 2.5v1.8l8-1.5V18l-2.2 1.6V21l3.2-.9 3.2.9v-1.4L13 18v-5.2l8 1.5z"/></svg>
+      <span>CALL AIRSTRIKE</span><b id="strikeBtnN">x1</b>
+    </button>
+
+    <div id="bottom">
+      <div id="movesBox"><span class="lbl">MOVES</span><span id="movesTxt">14</span></div>
+      <div id="statusBox"><span class="lbl" id="statusLbl">BOSS ARRIVES IN</span><span id="statusTxt">14 moves</span></div>
+    </div>
+
+    <div id="title" class="screen show">
+      <div class="logo"><div class="mark"><i></i><i></i><i></i></div><h1>NIGHTWIRE</h1></div>
+      <p class="tag">Match munitions. Arm the base.<br>Hold the line.</p>
+      <ol class="how">
+        <li><b>Match 3+</b> bullets, shells, missiles, armour or wrenches</li>
+        <li>Each one <b>arms a weapon</b>. Stack them to upgrade: MG → Gatling → CIWS</li>
+        <li>Moves run out, <b>the war machine attacks</b>. Big combos earn <b>airstrikes</b>.</li>
+      </ol>
+      <button class="cta big" id="playBtn">Play</button>
+      <div class="best">Best <span id="bestTxt">0</span></div>
+    </div>
+
+    <div id="over" class="screen">
+      <div class="ov-title">The base fell</div>
+      <div class="ov-day" id="ovDay">Stage 1</div>
+      <div class="stats">
+        <div><span class="lbl">SCORE</span><b id="ovScore">0</b></div>
+        <div><span class="lbl">BOSSES</span><b id="ovKills">0</b></div>
+        <div><span class="lbl">BEST</span><b id="ovBest">0</b></div>
+      </div>
+      <div class="newbest" id="ovNew">New best!</div>
+      <button class="cta big" id="againBtn">Play again</button>
+    </div>
+  </div>
+  <script type="module" src="src/game.js"></script>
+</body>
+</html>
