@@ -6,7 +6,7 @@
 export const N = 8;
 export const CORE = 5; // airstrike beacon
 export const MOVES_PER_DAY = 14;
-export const MAX_STRIKES = 5;
+export const MAX_STRIKES = 9;
 export const BASE_MAX = 1000; // tenths
 export const TIER_PCT = [100, 125, 160];
 export const NIGHT_START = 2000; // ms
@@ -28,6 +28,9 @@ export function brainInputs(hp, max, base, baseMax, shield, rage) {
 }
 // tier thresholds: shots for guns, points for shield/repair
 export const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 3 ? (v >= 40 ? 2 : v >= 20 ? 1 : 0) : (v >= 16 ? 2 : v >= 8 ? 1 : 0));
+// each war machine's signature weapon: it unleashes this once your arsenal is spent and it is still standing
+export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES'];
+export const ONSLAUGHT_HITS = 5;
 export const BOSSES = [
   { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0 },
   { name: 'STORMWING', role: 'attack gunship', color: '#9B8CFF', type: 1 },
@@ -65,8 +68,8 @@ const NOFX = new Proxy({}, { get: () => () => {} });
 export function makeBoss(stageNo) {
   const d = BOSSES[(stageNo - 1) % BOSSES.length];
   const mk = Math.floor((stageNo - 1) / BOSSES.length);
-  let hp = 1300; // tenths; x1.42 per stage
-  for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 142, 100);
+  let hp = 1300; // tenths; x1.60 per stage
+  for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 160, 100);
   return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
@@ -277,8 +280,10 @@ export function useMove(st) {
   const b = st.boss;
   if (b && b.present && st.moves > 0 && (MOVES_PER_DAY - st.moves) % 4 === 0) {
     const dmg = (3 + 2 * st.stageNo + b.rage) * 10;
-    st.base = Math.max(0, st.base - dmg);
-    return dmg;
+    const absorbed = Math.min(st.shield, dmg); // the shield stays up until it is knocked down
+    st.shield -= absorbed;
+    st.base = Math.max(0, st.base - (dmg - absorbed));
+    return { dmg, absorbed, rest: dmg - absorbed };
   }
   return 0;
 }
@@ -325,7 +330,7 @@ export function planNight(st) {
     st.wtier[i] = tierOf(i, st.ammo[i]);
   }
   const shieldPts = st.charge[3]; // 2 shield per point = 1 per half-point
-  st.shield = rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * 10;
+  st.shield = Math.min(BASE_MAX, st.shield + rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * 10); // stacks on what is left
   st.shieldMax = Math.max(1, st.shield);
   st.charge[3] = 0;
   const repTier = tierOf(4, Math.floor(st.charge[4] / 2));
@@ -345,7 +350,7 @@ export function planNight(st) {
   events.forEach((e, i) => { e.id = i; });
   return {
     events, heal, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
-    max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(),
+    max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg,
   };
 }
 
@@ -384,6 +389,15 @@ export function simNight(plan, strikes, crState) {
     push(ev.t, { type: 'fire', w: ev.kind, tier, id: ev.id });
     const vh = volleyHit(ev.kind, tier, ev.dmg);
     push(ev.t + vh.at, { type: 'hit', src: ev.kind, dmg: vh.dmg, id: ev.id });
+  }
+  // the onslaught: once our last volley has landed, a war machine still standing unleashes its signature weapon
+  let lastShot = 0;
+  for (const ev of plan.events) if (ev.kind !== 'boss') lastShot = Math.max(lastShot, ev.t + volleyHit(ev.kind, plan.wtier[ev.kind], 0).at);
+  const slamAt = Math.max(lastShot, NIGHT_START + 1200) + 600;
+  const slamDmg = rdiv(plan.bossDmg * 6, 10);
+  for (let k = 0; k < ONSLAUGHT_HITS; k++) {
+    push(slamAt + k * 160 - 450, { type: 'slamfire', k }); // visual only: launch
+    push(slamAt + k * 160, { type: 'slam', dmg: slamDmg, k });
   }
   strikes.forEach((ts, sid) => {
     push(ts, { type: 'strike', sid });
@@ -438,11 +452,22 @@ export function simNight(plan, strikes, crState) {
       base = Math.max(0, base - rest);
       out.push({ ...it, action, absorbed, rest, shield, base });
       if (base <= 0) { over = true; out.push({ t: it.t, type: 'over' }); }
+    } else if (it.type === 'slam') {
+      if (dead) continue;
+      const absorbed = Math.min(shield, it.dmg);
+      shield -= absorbed;
+      const rest = it.dmg - absorbed;
+      base = Math.max(0, base - rest);
+      out.push({ ...it, absorbed, rest, shield, base });
+      if (base <= 0) { over = true; out.push({ t: it.t, type: 'over' }); }
     } else if (it.type === 'blaunch') { if (!dead) out.push({ ...it, action: act[it.id] || 0 }); }
     else if (!dead) out.push(it); // fire
   }
+  // destroyed before the whole arsenal fired: the unfired shots go back to the arsenal (6 half-points each)
+  const refund = [0, 0, 0];
+  if (dead) for (const ev of plan.events) if (ev.kind !== 'boss' && ev.t > killT) refund[ev.kind] += 6;
   return {
-    entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT,
+    entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT, refund,
     lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, base, shield, score, strikes: left, crEnd: CR.s, brain,
   };
 }
@@ -456,6 +481,7 @@ export function finishNight(run, script) {
   st.strikes = script.strikes;
   st.boss.brain = script.brain;
   st.ammo = [0, 0, 0];
+  if (script.outcome === 'kill') for (let w = 0; w < 3; w++) st.charge[w] += script.refund[w];
   run.CR.s = script.crEnd;
   if (script.outcome === 'over') st.over = true;
   return script.outcome;
@@ -464,8 +490,7 @@ export function bossDefeated(st) { const bonus = 500 * st.stageNo; st.score += b
 export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo); }
 export function bossHolds(st) { st.boss.present = true; st.boss.rage++; }
 export function startDay(run) {
-  run.st.moves = MOVES_PER_DAY;
-  run.st.shield = 0;
+  run.st.moves = MOVES_PER_DAY; // the shield is kept
   if (!findMove(run.G)) { shuffle(run.G, run.R); return true; }
   return false;
 }

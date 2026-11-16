@@ -45,16 +45,18 @@ export function makeRival(seed, level, ghostActions = null) {
 
   function emit(type, extra = {}) { R.ev.push({ type, ...extra }); }
 
-  function chooseMove() {
+  // thinking is a generator that yields after each candidate, so the game can spread it over frames
+  function* thinkMove() {
     const moves = E.listMoves(run.G);
     if (!moves.length) return null;
-    if (level === 'easy' && Math.random() < 0.75) return moves[Math.floor(Math.random() * moves.length)];
+    if (level === 'easy') return moves[Math.floor(Math.random() * moves.length)];
     const smart = level === 'hard';
     const scored = [];
     for (const m of moves) {
       const sim = cloneRun(run);
       if (!E.playMove(sim, m[0], m[1])) continue;
       scored.push({ m, v: value(run, sim, smart) + Math.random() * 0.5 });
+      yield;
     }
     if (!scored.length) return null;
     scored.sort((x, y) => y.v - x.v);
@@ -63,17 +65,32 @@ export function makeRival(seed, level, ghostActions = null) {
     let best = scored[0].m, bv = -Infinity;
     for (const { m, v } of scored.slice(0, 5)) {
       let tot = v;
-      for (let k = 0; k < 3; k++) { const sim = cloneRun(run); E.playMove(sim, m[0], m[1]); tot += value(run, sim, true); }
+      for (let k = 0; k < 3; k++) { const sim = cloneRun(run); E.playMove(sim, m[0], m[1]); tot += value(run, sim, true); yield; }
       if (tot > bv) { bv = tot; best = m; }
     }
     return best;
+  }
+
+  function chooseMove() { // all at once (fast-forward)
+    const it = thinkMove();
+    for (;;) { const r = it.next(); if (r.done) return r.value; }
+  }
+  let thinking = null, planned;
+  function think(budgetMs) { // a few milliseconds per frame until the move is chosen
+    if (!thinking) { thinking = thinkMove(); planned = undefined; }
+    const t0 = performance.now();
+    while (planned === undefined && performance.now() - t0 < budgetMs) {
+      const r = thinking.next();
+      if (r.done) planned = r.value;
+    }
+    return planned !== undefined;
   }
 
   function chooseStrikes(plan) {
     const have = run.st.strikes;
     if (!have) return [];
     const at = (k) => Array.from({ length: k }, (_, j) => 2400 + j * 600);
-    if (level === 'easy') return Math.random() < 0.6 ? [3100] : [];
+    if (level === 'easy') return Math.random() < 0.35 ? [3100] : [];
     if (level === 'normal') return at(have);
     for (let k = 0; k <= have; k++) if (E.simNight(plan, at(k), run.CR.s).outcome === 'kill') return at(k);
     return at(have);
@@ -87,7 +104,8 @@ export function makeRival(seed, level, ghostActions = null) {
       const act = E.parseAction(s);
       a = act.a; b = act.b;
     } else {
-      const m = chooseMove();
+      const m = planned !== undefined ? planned : chooseMove();
+      thinking = null; planned = undefined;
       if (!m) { R.phase = 'over'; R.finished = true; return; }
       [a, b] = m;
     }
@@ -141,7 +159,8 @@ export function makeRival(seed, level, ghostActions = null) {
     if (R.flash.length && R.flash.every((f) => f[2] <= 0)) R.flash = [];
     if (R.phase === 'day') {
       R.timer -= dt;
-      if (R.timer <= 0) { R.timer = cfg.pace * (0.75 + Math.random() * 0.5); doMove(); }
+      const ready = R.actions || dt === 0 || think(3);
+      if (R.timer <= 0 && ready) { R.timer = cfg.pace * (0.75 + Math.random() * 0.5); doMove(); }
     } else if (R.phase === 'night') {
       const n = R.night;
       n.t += dt * 1000;

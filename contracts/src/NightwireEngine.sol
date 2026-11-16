@@ -19,7 +19,7 @@ contract NightwireEngine {
     uint8 constant SP_BOMB = 3;
     uint8 constant SP_CORE = 4; // only used in "creates"
     uint32 constant MOVES_PER_DAY = 14;
-    uint32 constant MAX_STRIKES = 5;
+    uint32 constant MAX_STRIKES = 9;
     uint32 constant BASE_MAX = 1000;
     uint32 constant NIGHT_START = 2000;
     uint32 constant BOSS_AIM = 380;
@@ -114,7 +114,7 @@ contract NightwireEngine {
     function _makeBoss(G memory g) internal pure {
         uint256 hp = 1300;
         for (uint256 i = 1; i < g.stageNo; i++) {
-            hp = _rdiv(hp * 142, 100);
+            hp = _rdiv(hp * 160, 100);
         }
         g.hp = uint32(hp);
         g.maxHp = uint32(hp);
@@ -489,6 +489,9 @@ contract NightwireEngine {
         g.moves--;
         if (g.present && g.moves > 0 && (MOVES_PER_DAY - g.moves) % 4 == 0) {
             uint32 dmg = (3 + 2 * g.stageNo + g.rage) * 10;
+            uint32 absorbed = dmg < g.shield ? dmg : g.shield; // the shield stays up until knocked down
+            g.shield -= absorbed;
+            dmg -= absorbed;
             g.base = g.base > dmg ? g.base - dmg : 0;
         }
     }
@@ -607,6 +610,8 @@ contract NightwireEngine {
         uint256 mulP;
         uint256[3] wtier;
         uint32 rage;
+        uint256 bossDmg;
+        uint256 killT;
         // events (merged shots and boss attacks), t | kind << 32 | dmg << 40 (kind 0..2 weapon, 3 boss)
         uint256[] ev;
         uint256 nev;
@@ -623,7 +628,8 @@ contract NightwireEngine {
             shots += ammo[i];
         }
         uint256 sp = g.charge[3];
-        g.shield = uint32(_rdiv(sp * _tierPct(_tierOf(3, sp)), 100) * 10);
+        uint256 sh = g.shield + _rdiv(sp * _tierPct(_tierOf(3, sp)), 100) * 10; // stacks on what is left
+        g.shield = uint32(sh > BASE_MAX ? BASE_MAX : sh);
         g.charge[3] = 0;
         uint256 repTier = _tierOf(4, g.charge[4] / 2);
         uint256 heal = _rdiv(uint256(g.charge[4]) * _tierPct(repTier), 200) * 10;
@@ -643,6 +649,7 @@ contract NightwireEngine {
         uint256 dur = shots * spacing + 500;
         if (dur < 4500) dur = 4500;
         uint256 bossDmg = _rdiv((6 + 3 * (g.stageNo - 1)) * 10 * (4 + g.rage), 4);
+        nt.bossDmg = bossDmg;
         // shots round-robin across weapons, then merge with boss attacks by time (shots first on ties)
         uint256[3] memory left = ammo;
         uint256 j;
@@ -667,6 +674,14 @@ contract NightwireEngine {
                 nt.ev[nt.nev++] = bossT | (uint256(3) << 32) | (bossDmg << 40);
                 b++;
             }
+        }
+    }
+
+    function _refund(G memory g, Night memory nt, uint256 killT) internal pure {
+        for (uint256 i; i < nt.nev; i++) {
+            uint256 e = nt.ev[i];
+            uint256 kind = (e >> 32) & 0xff;
+            if (kind < 3 && (e & 0xffffffff) > killT) g.charge[kind] += 6;
         }
     }
 
@@ -696,10 +711,11 @@ contract NightwireEngine {
     function _runNight(G memory g, uint16[] memory strikes) internal view returns (uint8 outcome) {
         Night memory nt = _planNight(g);
         Heap memory h;
-        h.k = new uint256[](1 + nt.nev * 2 + strikes.length * 2);
+        h.k = new uint256[](1 + nt.nev * 2 + strikes.length * 2 + 5);
         h.v = new uint256[](h.k.length);
         if (nt.heal > 0) _push(h, 1200, 0, nt.heal);
         uint256 nBoss;
+        uint256 lastShot;
         for (uint256 i; i < nt.nev; i++) {
             uint256 e = nt.ev[i];
             uint256 t = e & 0xffffffff;
@@ -727,6 +743,13 @@ contract NightwireEngine {
                 tt = t + 750;
             }
             _push(h, tt, 2, d | (uint256(0xff) << 32)); // sid 0xff = not a bomb
+            if (tt > lastShot) lastShot = tt;
+        }
+        // onslaught: once our last volley lands, a war machine still standing unleashes its signature weapon
+        {
+            uint256 slamAt = (lastShot > NIGHT_START + 1200 ? lastShot : NIGHT_START + 1200) + 600;
+            uint256 slamDmg = _rdiv(nt.bossDmg * 6, 10);
+            for (uint256 k; k < 5; k++) _push(h, slamAt + k * 160, 7, slamDmg);
         }
         uint256 bombDmg = _rdiv(160 * nt.mulP, 100);
         for (uint256 s; s < strikes.length; s++) {
@@ -737,7 +760,6 @@ contract NightwireEngine {
 
         uint8[] memory act = new uint8[](nBoss);
         uint256 liveStrikes;
-        bool dead;
         uint32 hp = g.hp;
         uint32 base = g.base;
         uint32 shield = g.shield;
@@ -747,23 +769,35 @@ contract NightwireEngine {
             if (typ == 0) {
                 base += uint32(val);
             } else if (typ == 6) {
-                if (dead || g.strikes == 0) continue;
+                if ((hp == 0) || g.strikes == 0) continue;
                 g.strikes--;
                 liveStrikes |= 1 << val;
             } else if (typ == 2) {
                 uint256 sid = (val >> 32) & 0xff;
-                if (dead || (sid != 0xff && (liveStrikes >> sid) & 1 == 0)) continue;
+                if ((hp == 0) || (sid != 0xff && (liveStrikes >> sid) & 1 == 0)) continue;
                 uint32 o;
                 (g.crs, o) = _next(g.crs);
                 uint256 d = (val & 0xffffffff) * (o < 429496730 ? 2 : 1);
                 hp = d >= hp ? 0 : hp - uint32(d);
                 g.score += _rdiv(d, 5);
-                if (hp == 0) dead = true;
+                if (hp == 0) nt.killT = key >> 40;
             } else if (typ == 3) {
-                if (dead) continue;
+                if ((hp == 0)) continue;
                 act[val] = _brainStep(g, hp, base, shield, nt.rage);
+            } else if (typ == 7) {
+                if ((hp == 0)) continue;
+                uint256 absorbed7 = val < shield ? val : shield;
+                shield -= uint32(absorbed7);
+                uint256 rest7 = val - absorbed7;
+                base = rest7 >= base ? 0 : base - uint32(rest7);
+                if (base == 0) {
+                    g.base = 0;
+                    g.hp = hp;
+                    g.over = true;
+                    return 2;
+                }
             } else if (typ == 5) {
-                if (dead) continue;
+                if ((hp == 0)) continue;
                 uint256 id = val & 0xffff;
                 uint256 dmg = val >> 16;
                 uint8 a = act[id];
@@ -794,7 +828,8 @@ contract NightwireEngine {
         g.hp = hp;
         g.base = base;
         g.shield = shield;
-        if (dead) {
+        if ((hp == 0)) {
+            _refund(g, nt, nt.killT); // unfired shots go back to the arsenal
             g.score += 500 * g.stageNo;
             g.bossesDown++;
             g.stageNo++;
@@ -805,8 +840,7 @@ contract NightwireEngine {
             g.present = true;
             g.rage++;
         }
-        g.moves = MOVES_PER_DAY;
-        g.shield = 0;
+        g.moves = MOVES_PER_DAY; // the shield is kept
         if (!_findMove(g)) _shuffle(g);
     }
 

@@ -637,7 +637,7 @@ function newGame(mode = MODE) {
   RUN = E.newRun(MODE.seed, mkGem);
   Object.assign(S, RUN.st, {
     events: [], proj: [], fx: [], texts: [], bstate: 'idle', sel: null, press: null, hint: null, swap: null, tut: 0, slow: 1,
-    shown: [0, 0, 0, 0, 0], tierShown: [0, 0, 0, 0, 0], baseHold: 0, lead: 0, leadT: 0,
+    shown: [0, 0, 0, 0, 0], tierShown: [0, 0, 0, 0, 0], baseHold: 0, shieldHold: 0, lead: 0, leadT: 0,
   });
   RUN.st = S;
   G = RUN.G;
@@ -730,6 +730,26 @@ function nightEntry(e) {
       shotLandsFx(e.absorbed, e.rest, NIGHT.tx[e.id] ?? 195, e.shield);
       break;
     case 'strike': S.strikes = e.strikes; syncHud(); break;
+    case 'slamfire': { // arsenal spent, war machine still standing: its signature weapon
+      if (e.k === 0) {
+        banner(`${E.SIGNATURE[b.type]}!`, `${b.name} unleashes its weapon`);
+        sfx.siren();
+        b.charge = 0.9;
+        S.shake = Math.max(S.shake, 6);
+      }
+      const tx = 50 + Math.random() * (W - 100);
+      NIGHT.tx[`s${e.k}`] = tx;
+      b.recoil = 1;
+      const sx = S.bp.x + (Math.random() - 0.5) * 60 * S.bp.s, sy = S.bp.y + 26 * S.bp.s;
+      S.proj.push({ kind: 'slam', style: b.type, sx, sy, cx: (sx + tx) / 2 + (b.type === 1 ? (Math.random() - 0.5) * 220 : 0), cy: b.type === 2 ? sy + 20 : sy + 60, tx, ty: BASE_Y - 6, t: 0, d: 0.45, color: b.color });
+      if (b.type === 0) sfx.laser(); else if (b.type === 2) sfx.cannon(); else sfx.missile();
+      break;
+    }
+    case 'slam':
+      S.shield = e.shield;
+      S.base = e.base;
+      shotLandsFx(e.absorbed, e.rest, NIGHT.tx[`s${e.k}`] ?? 195, e.shield);
+      break;
     case 'over': closeNight(); gameOver(); break;
     default:
   }
@@ -808,20 +828,21 @@ function bossKilled() {
   buzz(80);
 }
 
-function bossFire(dmg) { // daytime: a boss holding the sky shells the base (the engine already counted the damage)
+function bossFire(shot) { // daytime: a boss holding the sky shells the base (the engine already counted it)
   const b = S.boss;
   if (!b) return;
   b.charge = 0.45;
-  S.baseHold += dmg;
+  S.baseHold += shot.rest;
+  S.shieldHold = (S.shieldHold || 0) + shot.absorbed;
   const tx = 40 + Math.random() * (W - 80);
-  setTimeout(() => launchBossShot(tx, dmg), 380);
+  setTimeout(() => launchBossShot(tx, shot), 380);
 }
 const ACTION_COL = ['#ff8a8a', '#ff4a4a', '#3FC8FF', '#3DDC97'];
-function launchBossShot(tx, dayDmg = 0, action = 0) {
-  if (!S.boss || S.boss.dying >= 0 || S.phase === 'over' || S.phase === 'title') { if (dayDmg) S.baseHold = 0; return; }
+function launchBossShot(tx, dayShot = null, action = 0) {
+  if (!S.boss || S.boss.dying >= 0 || S.phase === 'over' || S.phase === 'title') { if (dayShot) { S.baseHold = 0; S.shieldHold = 0; } return; }
   S.boss.recoil = 1;
   const sx = S.bp.x, sy = S.bp.y + 30 * S.bp.s;
-  S.proj.push({ kind: 'bossShot', sx, sy, cx: (sx + tx) / 2 + (Math.random() - 0.5) * 140, cy: sy + 50, tx, ty: BASE_Y - 6, t: 0, d: E.BOSS_FLIGHT / 1000, dayDmg, action, color: action === 2 ? '#3FC8FF' : '#ff4a4a' });
+  S.proj.push({ kind: 'bossShot', sx, sy, cx: (sx + tx) / 2 + (Math.random() - 0.5) * 140, cy: sy + 50, tx, ty: BASE_Y - 6, t: 0, d: E.BOSS_FLIGHT / 1000, dayShot, action, color: action === 2 ? '#3FC8FF' : '#ff4a4a' });
   if (action === 1) { smoke(sx, sy, 6); S.shake = Math.max(S.shake, 6); }
   smoke(sx, sy, 5);
   sfx.bossShot();
@@ -871,7 +892,11 @@ function endNight() {
   }, 1600);
 }
 function bossDefeated() {
+  const refund = NIGHT ? NIGHT.script.refund : [0, 0, 0];
   closeNight();
+  S.shown = S.charge.map((v) => v / 2);
+  const back = refund.reduce((a, v) => a + v / 6, 0);
+  if (back > 0) setTimeout(() => toast(`<b>${back} unfired shot${back > 1 ? 's' : ''}</b> returned to the arsenal`, false, 3000), 900);
   const bonus = E.bossDefeated(S);
   S.boss = null;
   banner('TARGET DESTROYED', `+${bonus}  ·  base repaired`);
@@ -962,6 +987,8 @@ function gameOver() {
       if (RIVAL.finished) show();
       else { $('vsThem').textContent = '…'; $('vsThemS').textContent = 'still fighting'; RIVAL.fastForward(show); }
     }
+    ui.toast.classList.remove('show');
+    rv.box.classList.remove('show');
     ui.over.classList.add('show');
   }, 1300);
 }
@@ -1066,10 +1093,13 @@ async function submitToChain() {
   try {
     st.textContent = 'Asking X Layer to replay your run…';
     const chk = await C.checkRun(lastResult.seed, hex);
-    if (!chk.ok || !chk.over || chk.score !== lastResult.score) { st.innerHTML = `<span class="bad">✗</span> X Layer's replay disagrees (${chk.score}).`; return; }
-    let fee = null;
-    try { fee = await C.estimateFee(day, lastResult.seed, hex); } catch { /* shown without a fee */ }
-    st.innerHTML = `<span class="ok">✓</span> X Layer replayed it: <b>${fmt(chk.score)}</b>${fee !== null ? ` · fee ≈ ${fee.toFixed(4)} OKB` : ''}. Confirm in your wallet…`;
+    if (chk.tooLong) st.innerHTML = 'A long campaign: too big for a free preview, X Layer will replay it when you submit. Confirm in your wallet…';
+    else {
+      if (!chk.ok || !chk.over || chk.score !== lastResult.score) { st.innerHTML = `<span class="bad">✗</span> X Layer's replay disagrees (${chk.score}).`; btn.disabled = false; return; }
+      let fee = null;
+      try { fee = await C.estimateFee(day, lastResult.seed, hex); } catch { /* shown without a fee */ }
+      st.innerHTML = `<span class="ok">✓</span> X Layer replayed it: <b>${fmt(chk.score)}</b>${fee !== null ? ` · fee ≈ ${fee.toFixed(4)} OKB` : ''}. Confirm in your wallet…`;
+    }
     const { hash } = await C.submitRun(day, lastResult.seed, hex);
     st.innerHTML = `Sent. Waiting for X Layer… <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>`;
     const good = await C.waitFor(hash);
@@ -1140,8 +1170,8 @@ function rivalEvents() {
   const d = S.score - RIVAL.st.score, sgn = Math.sign(d);
   if (sgn && sgn !== S.lead && S.time - S.leadT > 4 && S.score + RIVAL.st.score > 300) {
     S.leadT = S.time;
-    if (sgn > 0) { text(300, 54, 'YOU TOOK THE LEAD', '#3DDC97', 13, 1.6, 10); sfx.upgrade(); }
-    else text(300, 54, 'RIVAL TAKES THE LEAD', '#ff6b6b', 13, 1.6, 10);
+    if (sgn > 0) { text(195, 214, 'YOU TOOK THE LEAD', '#3DDC97', 14, 1.6, 10); sfx.upgrade(); }
+    else text(195, 214, 'RIVAL TAKES THE LEAD', '#ff6b6b', 14, 1.6, 10);
   }
   if (sgn) S.lead = sgn;
 }
@@ -1283,11 +1313,17 @@ function update(dt) {
     p.py = p.y ?? p.sy;
     p.x = bez(p.sx, p.cx, p.tx, t);
     p.y = bez(p.sy, p.cy, p.ty, t);
-    if ((p.kind === 'missile' || p.kind === 'rocket' || p.kind === 'bossShot') && Math.random() < 0.85) smoke(p.x, p.y, 1);
+    if ((p.kind === 'missile' || p.kind === 'rocket' || p.kind === 'bossShot' || (p.kind === 'slam' && p.style !== 0)) && Math.random() < 0.85) smoke(p.x, p.y, 1);
     if (p.kind === 'shell' && Math.random() < 0.4) smoke(p.x, p.y, 1);
     if (p.t >= 1) {
       S.proj.splice(j, 1);
-      if (p.kind === 'bossShot') { if (p.dayDmg) { S.baseHold = Math.max(0, S.baseHold - p.dayDmg); damageFx(p.dayDmg, p.tx); } }
+      if (p.kind === 'bossShot') {
+        if (p.dayShot) {
+          S.baseHold = Math.max(0, S.baseHold - p.dayShot.rest);
+          S.shieldHold = Math.max(0, (S.shieldHold || 0) - p.dayShot.absorbed);
+          shotLandsFx(p.dayShot.absorbed, p.dayShot.rest, p.tx, S.shield);
+        }
+      } else if (p.kind === 'slam') { smoke(p.tx, p.ty - 10, 3); }
       else {
         spark(p.tx, p.ty, p.color, lowPower ? 2 : 4, 140, 2.4, 0.3);
         if (p.splash) { S.fx.push({ type: 'boom', x: p.tx, y: p.ty, r: 0, max: p.kind === 'bomb' ? 80 : 46, t: 0, d: 0.42 }); smoke(p.tx, p.ty, 4); S.shake = Math.max(S.shake, p.kind === 'bomb' ? 12 : 5); }
@@ -1435,6 +1471,33 @@ function drawProjectiles() {
   for (const p of S.proj) {
     if (p.t < 0 || p.x === undefined) continue;
     const ang = Math.atan2(p.y - p.py, p.x - p.px);
+    if (p.kind === 'slam') {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang);
+      ctx.globalCompositeOperation = 'lighter';
+      if (p.style === 0) { // rail cannon slug: a long hot streak
+        ctx.strokeStyle = '#ff6a4a'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(6, 0); ctx.stroke();
+        ctx.drawImage(SPR.red, -12, -12, 24, 24);
+      } else if (p.style === 3) { // kamikaze drone
+        ctx.drawImage(SPR.flame, -20, -7, 14, 14);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#59626b'; ctx.fillRect(-8, -2, 16, 4); ctx.fillRect(-2, -7, 4, 14);
+        ctx.fillStyle = '#FF4FD8'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, Math.PI * 2); ctx.fill();
+      } else if (p.style === 2) { // heavy bomb
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#2b3036'; ctx.beginPath(); ctx.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#45B4E8'; ctx.fillRect(-12, -4, 3, 8);
+      } else { // rocket pod salvo
+        ctx.drawImage(SPR.flame, -22, -8, 16, 16);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#4a4f55'; ctx.fillRect(-9, -2.4, 15, 4.8);
+        ctx.fillStyle = '#ff4a4a'; ctx.beginPath(); ctx.moveTo(6, -2.4); ctx.lineTo(11, 0); ctx.lineTo(6, 2.4); ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+      continue;
+    }
     if (p.kind === 'tracer') {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -1478,7 +1541,7 @@ function drawBossBar() {
   ctx.fillText(b.name + (b.rage ? `  RAGE ${b.rage}` : ''), x, y);
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(232,238,247,0.8)';
-  ctx.fillText(`${Math.ceil(b.hp / 10)} / ${b.max / 10}`, x + w, y);
+  ctx.fillText(`${Math.ceil(b.hp / 10)} / ${Math.ceil(b.max / 10)}`, x + w, y);
   rr(ctx, x, y + 5, w, 8, 4);
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fill();
@@ -1642,8 +1705,9 @@ function drawTurret(w, tier, pulse) {
 }
 
 function drawBase() {
-  if (S.shield > 0 && S.phase === 'night') {
-    const a = 0.16 + 0.3 * (S.shield / S.shieldMax);
+  const shownShield = S.shield + (S.shieldHold || 0);
+  if (shownShield > 0) {
+    const a = (S.phase === 'night' ? 0.16 : 0.08) + 0.3 * Math.min(1, shownShield / Math.max(1, S.shieldMax));
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = rgba('#3FC8FF', a + 0.25);
@@ -1700,7 +1764,7 @@ function drawBase() {
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgba(232,238,247,0.75)';
   ctx.fillText(`BASE ${Math.ceil(shownBase / 10)}`, 14, BASE_Y + 21);
-  if (S.shield > 0 && S.phase === 'night') { ctx.textAlign = 'right'; ctx.fillStyle = '#3FC8FF'; ctx.fillText(`SHIELD ${Math.ceil(S.shield / 10)}`, W - 14, BASE_Y + 21); }
+  if (shownShield > 0) { ctx.textAlign = 'right'; ctx.fillStyle = '#3FC8FF'; ctx.fillText(`SHIELD ${Math.ceil(shownShield / 10)}`, W - 14, BASE_Y + 21); }
 }
 
 function drawWeapons() {

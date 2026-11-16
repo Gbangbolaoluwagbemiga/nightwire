@@ -213,7 +213,7 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 
 /* Rival panel */
 #rival {
-  position: absolute; left: calc(var(--u) * 10); top: calc(var(--u) * 92); width: calc(var(--u) * 78); padding: calc(var(--u) * 6) calc(var(--u) * 7) calc(var(--u) * 7);
+  position: absolute; left: calc(var(--u) * 10); top: calc(var(--u) * 104); width: calc(var(--u) * 78); padding: calc(var(--u) * 6) calc(var(--u) * 7) calc(var(--u) * 7);
   border-radius: calc(var(--u) * 12); background: rgba(8, 12, 20, .74); border: 1px solid rgba(255, 74, 74, .35); pointer-events: none;
   display: none; font-family: "JetBrains Mono", monospace; font-weight: 800; line-height: 1.1;
 }

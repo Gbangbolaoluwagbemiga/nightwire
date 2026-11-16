@@ -66,7 +66,10 @@ export async function allTimeBoard() { return decodeEntries(await call(NET.ladde
 
 /// Free dry run: X Layer replays the run and says what it scores (no wallet, no gas paid).
 export async function checkRun(seed, actionsHex) {
-  const out = words(await call(NET.engine, encode(SEL.replay, [word(seed)], actionsHex), '0x2FAF080')); // public RPC cap: 50M
+  let raw;
+  try { raw = await call(NET.engine, encode(SEL.replay, [word(seed)], actionsHex), '0x2FAF080'); } // public RPC cap: 50M
+  catch (e) { if (/gas/i.test(String(e.message))) return { tooLong: true }; throw e; }
+  const out = words(raw);
   return { ok: BigInt(`0x${out[0]}`) === 1n, over: BigInt(`0x${out[1]}`) === 1n, score: Number(BigInt(`0x${out[2]}`)), stage: Number(BigInt(`0x${out[3]}`)) };
 }
 
@@ -92,9 +95,12 @@ export async function connect() {
 export async function sendTx(to, data, value = 0n) {
   if (!account) await connect();
   const tx = { from: account, to, data, value: `0x${value.toString(16)}` };
-  const est = BigInt(await rpc('eth_estimateGas', [tx]));
+  // long runs replay above the RPC's 50M estimation cap: send them with an explicit limit (blocks hold 210M)
+  let est;
+  try { est = (BigInt(await rpc('eth_estimateGas', [tx])) * 12n) / 10n; }
+  catch (e) { if (!/gas/i.test(String(e.message))) throw e; est = 200_000_000n; }
   const gasPrice = BigInt(await rpc('eth_gasPrice', []));
-  tx.gas = `0x${((est * 12n) / 10n).toString(16)}`;
+  tx.gas = `0x${est.toString(16)}`;
   const hash = await wallet().request({ method: 'eth_sendTransaction', params: [tx] });
   return { hash, fee: Number((est * gasPrice) / 10n ** 12n) / 1e6 }; // OKB
 }
@@ -109,7 +115,9 @@ export async function waitFor(hash, tries = 60) {
 export async function estimateFee(day, seed, actionsHex) {
   const from = account || '0x000000000000000000000000000000000000dEaD';
   const data = encode(SEL.submit, [word(day), word(seed)], actionsHex);
-  const [est, gp] = await Promise.all([rpc('eth_estimateGas', [{ from, to: NET.ladder, data }]), rpc('eth_gasPrice', [])]);
+  let est;
+  try { est = await rpc('eth_estimateGas', [{ from, to: NET.ladder, data }]); } catch { return null; }
+  const gp = await rpc('eth_gasPrice', []);
   return Number((BigInt(est) * BigInt(gp)) / 10n ** 12n) / 1e6;
 }
 export const submitRun = (day, seed, actionsHex) => sendTx(NET.ladder, encode(SEL.submit, [word(day), word(seed)], actionsHex));
