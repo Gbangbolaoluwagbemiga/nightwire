@@ -14,3 +14,5 @@ export const submitRun = (run) => req('/runs', run);
 export const board = (mode, extra = '') => req(`/boards?mode=${mode}${extra}`);
 export const createDuel = (d) => req('/duels', d);
 export const getDuel = (id) => req(`/duels/${encodeURIComponent(id)}`);
+export const raidState = () => req('/raid');
+export const submitRaid = (r) => req('/raid', r);

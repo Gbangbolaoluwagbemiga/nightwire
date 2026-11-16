@@ -46,5 +46,16 @@ const daily = ['easy', 'normal', 'hard'].map((lvl) => {
   while (!R.finished) { if (R.phase === 'night') { R.night.t = R.night.end; R.update(0); } else { R.timer = 0; R.update(0); } }
   return { seed, actions: E.encodeBinary(R.log), score: R.st.score, half: E.encodeBinary(R.log.slice(0, 20)) };
 });
-fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games, day: DAY, daily }));
+// World Boss raid runs: one week's seed, every AI level, plus chaos; expected damage per run
+const WEEK = 2967;
+const raid = [];
+for (let i = 0; i < 24; i++) {
+  const seed = i < 12 ? E.raidSeed(WEEK) : (0x27d4eb2f * (i + 3)) >>> 0;
+  const R = makeRival(seed, ['easy', 'normal', 'hard'][i % 3], null, { raid: true });
+  while (!R.finished) { if (R.phase === 'night') { R.night.t = R.night.end; R.update(0); } else { R.timer = 0; R.update(0); } }
+  const chk = E.replay(seed, R.log, { raid: true });
+  if (!chk.ok || chk.st.damage !== R.st.damage) throw new Error(`JS raid replay mismatch ${i}`);
+  raid.push({ seed, actions: E.encodeBinary(R.log), damage: R.st.damage, score: R.st.score, over: R.st.over });
+}
+fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games, day: DAY, daily, week: WEEK, raidCount: raid.length, raid }));
 console.log(`wrote ${games.length} games; actions ${Math.min(...games.map((g) => g.n))}..${Math.max(...games.map((g) => g.n))}; bytes up to ${Math.max(...games.map((g) => (g.actions.length - 2) / 2))}`);

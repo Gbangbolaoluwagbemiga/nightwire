@@ -8,6 +8,7 @@ export const NET = {
   rpc: params.get('rpc') || DEPLOY.rpc, // ?rpc=…&ladder=… point the game at a local fork for testing
   ladder: params.get('ladder') || DEPLOY.ladder,
   engine: params.get('engine') || DEPLOY.engine,
+  raid: params.get('raid') || DEPLOY.raid,
   explorer: DEPLOY.explorer,
 };
 export const enabled = () => !!NET.ladder;
@@ -16,6 +17,7 @@ export const FREE_PLAY = (1n << 256n) - 1n; // day value for an any-seed run
 // ---------------------------------------------------------------- ABI (just what we use)
 const SEL = {
   submit: '3ddd836b', dailyBoard: 'a78009b1', allTimeBoard: '8203b088', today: 'b74e452b', dailySeed: '821d5313',
+  raidSubmit: 'd1a2eab2', replayRaid: '6a7ccfee',
   openDuel: '938326b6', answerDuel: '97a231de', revealDuel: 'cfa07d39', replay: '91ced2c8', dailyPool: 'fb3fa02a',
 };
 export const word = (v) => BigInt(v).toString(16).padStart(64, '0');
@@ -65,12 +67,12 @@ export async function dailyBoard(day) { return decodeEntries(await call(NET.ladd
 export async function allTimeBoard() { return decodeEntries(await call(NET.ladder, `0x${SEL.allTimeBoard}`)); }
 
 /// Free dry run: X Layer replays the run and says what it scores (no wallet, no gas paid).
-export async function checkRun(seed, actionsHex) {
+export async function checkRun(seed, actionsHex, raid = false) {
   let raw;
-  try { raw = await call(NET.engine, encode(SEL.replay, [word(seed)], actionsHex), '0x2FAF080'); } // public RPC cap: 50M
+  try { raw = await call(NET.engine, encode(raid ? SEL.replayRaid : SEL.replay, [word(seed)], actionsHex), '0x2FAF080'); } // public RPC cap: 50M
   catch (e) { if (/gas/i.test(String(e.message))) return { tooLong: true }; throw e; }
   const out = words(raw);
-  return { ok: BigInt(`0x${out[0]}`) === 1n, over: BigInt(`0x${out[1]}`) === 1n, score: Number(BigInt(`0x${out[2]}`)), stage: Number(BigInt(`0x${out[3]}`)) };
+  return { damage: Number(BigInt(`0x${out[6] || '0'}`)), ok: BigInt(`0x${out[0]}`) === 1n, over: BigInt(`0x${out[1]}`) === 1n, score: Number(BigInt(`0x${out[2]}`)), stage: Number(BigInt(`0x${out[3]}`)) };
 }
 
 // ---------------------------------------------------------------- wallet
@@ -124,3 +126,5 @@ export const submitRun = (day, seed, actionsHex) => sendTx(NET.ladder, encode(SE
 export const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 export const txUrl = (h) => `${NET.explorer}/tx/${h}`;
 export { addrWord };
+export const raidEnabled = () => !!NET.raid;
+export const submitRaidRun = (week, actionsHex) => sendTx(NET.raid, encode(SEL.raidSubmit, [word(week)], actionsHex));

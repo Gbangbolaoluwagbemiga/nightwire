@@ -15,8 +15,10 @@ const MODES = new Set(['solo', 'ai', 'daily', 'duel']);
 const LEVELS = new Set(['easy', 'normal', 'hard']);
 
 fs.mkdirSync(DATA, { recursive: true });
-let db = { runs: [], duels: {} };
+let db = { runs: [], duels: {}, raids: [] };
 try { db = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { /* first start */ }
+db.raids ??= [];
+const RAID_POOL = Number(process.env.RAID_POOL || 1_500_000); // OMEGA's weekly health, tenths of HP
 let dirty = false;
 setInterval(() => {
   if (!dirty) return;
@@ -39,10 +41,10 @@ function limited(ip, max = 30) {
 const ACTION = /^(\d{4}|N(\d{1,5}(\|\d{1,5}){0,8})?)$/;
 const cleanName = (s) => String(s || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16) || 'Anonymous';
 
-function verify(seed, actions) {
+function verify(seed, actions, opts = {}) {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return { error: 'bad seed' };
   if (!Array.isArray(actions) || actions.length === 0 || actions.length > 1500 || !actions.every((a) => typeof a === 'string' && ACTION.test(a))) return { error: 'bad actions' };
-  const r = E.replay(seed, actions);
+  const r = E.replay(seed, actions, opts);
   if (!r.ok) return { error: `replay failed: ${r.reason}` };
   if (!r.st.over) return { error: 'the run has not ended' };
   return { st: r.st };
@@ -59,6 +61,21 @@ function board(mode, day, level) {
   }
   return [...best.values()].sort((a, b) => b.score - a.score).slice(0, 20)
     .map(({ name, score, stage, bossesDown, level: lv, at }) => ({ name, score, stage, bossesDown, level: lv, at }));
+}
+
+function raidState(week) {
+  const runs = db.raids.filter((r) => r.week === week);
+  const per = new Map();
+  let dealt = 0, downAt = null;
+  for (const r of runs.sort((a, b) => a.at - b.at)) {
+    dealt += r.damage;
+    if (downAt === null && dealt >= RAID_POOL) downAt = r.at;
+    const p = per.get(r.name) || { name: r.name, damage: 0, runs: 0, best: 0 };
+    p.damage += r.damage; p.runs++; p.best = Math.max(p.best, r.damage);
+    per.set(r.name, p);
+  }
+  const top = [...per.values()].sort((a, b) => b.damage - a.damage).slice(0, 20);
+  return { week, poolHp: RAID_POOL, dealt: Math.min(dealt, RAID_POOL), overkill: Math.max(0, dealt - RAID_POOL), down: downAt !== null, downAt, runs: runs.length, raiders: per.size, endsAt: (week + 1) * 7 * 86400000, top };
 }
 
 function send(res, code, obj) {
@@ -121,6 +138,27 @@ const server = http.createServer(async (req, res) => {
       db.duels[id] = { seed: b.seed >>> 0, actions: b.actions, score: v.st.score, stage: v.st.stageNo, name: cleanName(b.name), at: Date.now() };
       dirty = true;
       return send(res, 200, { id });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/raid') {
+      const week = Number(url.searchParams.get('week') || E.weekNumber(E.dayNumber()));
+      return send(res, 200, raidState(week));
+    }
+    if (req.method === 'POST' && url.pathname === '/raid') {
+      if (limited(ip)) return send(res, 429, { error: 'slow down' });
+      const b = await body(req);
+      const week = E.weekNumber(E.dayNumber());
+      if (b.week !== undefined && Number(b.week) !== week) return send(res, 400, { error: 'that raid week is over' });
+      const seed = E.raidSeed(week);
+      const v = verify(seed, b.actions, { raid: true });
+      if (v.error) return send(res, 422, { error: v.error });
+      const key = crypto.createHash('sha256').update(`raid:${seed}:${b.actions.join(',')}`).digest('hex');
+      if (db.raids.some((r) => r.key === key)) return send(res, 409, { error: 'this run was already submitted' });
+      const name = cleanName(b.name);
+      db.raids.push({ key, week, name, damage: v.st.damage, score: v.st.score, at: Date.now() });
+      dirty = true;
+      const st = raidState(week);
+      return send(res, 200, { ok: true, damage: v.st.damage, rank: st.top.findIndex((p) => p.name === name) + 1 || null, raid: st });
     }
 
     const m = url.pathname.match(/^\/duels\/([\w-]{4,12})$/);

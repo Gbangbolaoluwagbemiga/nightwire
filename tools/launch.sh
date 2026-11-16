@@ -22,11 +22,11 @@ ARMORY=$(echo "$OUT" | awk '/^  processor/{print $2}'); echo "armory $ARMORY"
 
 ask "2/3 Deploy NightwireEngine + NightwireLadder (gas only, < 0.001 OKB)?"
 OUT=$(cd contracts && ARMORY=$ARMORY forge script script/DeployNightwire.s.sol --rpc-url "$RPC" --account "$ACCOUNT" --broadcast --slow 2>&1)
-ENGINE=$(echo "$OUT" | awk '/^  engine/{print $2}'); LADDER=$(echo "$OUT" | awk '/^  ladder/{print $2}')
-echo "engine $ENGINE  ladder $LADDER"
+ENGINE=$(echo "$OUT" | awk '/^  engine/{print $2}'); LADDER=$(echo "$OUT" | awk '/^  ladder/{print $2}'); RAID=$(echo "$OUT" | awk '/^  raid/{print $2}')
+echo "engine $ENGINE  ladder $LADDER  raid $RAID"
 node -e "
 const fs=require('fs');let s=fs.readFileSync('src/deploy.js','utf8');
-s=s.replace(/armory: [^,]*,/,'armory: \'$ARMORY\',').replace(/engine: [^,]*,/,'engine: \'$ENGINE\',').replace(/ladder: [^,]*,/,'ladder: \'$LADDER\',');
+s=s.replace(/armory: [^,]*,/,'armory: \'$ARMORY\',').replace(/engine: [^,]*,/,'engine: \'$ENGINE\',').replace(/ladder: [^,]*,/,'ladder: \'$LADDER\',').replace(/raid: [^,]*,/,'raid: \'$RAID\',');
 fs.writeFileSync('src/deploy.js',s);"
 sed -i '' "s/processor: null/processor: '$ARMORY'/" src/chips.js
 

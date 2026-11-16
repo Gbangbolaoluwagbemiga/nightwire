@@ -18,7 +18,7 @@ import { load as loadChip, beat as chipBeat } from './tap02.js';
 // Each war machine's combat brain is a TapeOut NAND/LATCH chip (src/chips.js, taped out on X Layer).
 // Before every attack the boss steps its chip once; the 2 output bits pick the action.
 export const ACTIONS = ['BARRAGE', 'FOCUS FIRE', 'EMP', 'FIELD REPAIR'];
-const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden'];
+const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden', 'omega'];
 const BRAINS = BRAIN_KEYS.map((k) => loadChip(CHIPS[k].netlist, CHIPS[k].nIn, CHIPS[k].nOut));
 export const brainOf = (type) => ({ key: BRAIN_KEYS[type], chip: CHIPS[BRAIN_KEYS[type]], circuit: BRAINS[type] });
 // chip inputs: boss HP quarter (2 bits), base HP quarter (2), shield up (1), rage (2, capped at 3)
@@ -29,7 +29,7 @@ export function brainInputs(hp, max, base, baseMax, shield, rage) {
 // tier thresholds: shots for guns, points for shield/repair
 export const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 3 ? (v >= 40 ? 2 : v >= 20 ? 1 : 0) : (v >= 16 ? 2 : v >= 8 ? 1 : 0));
 // each war machine's signature weapon: it unleashes this once your arsenal is spent and it is still standing
-export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES', 'SIEGE SHELLS', 'CARPET BOMBING', 'PLASMA MORTAR', 'ORBITAL LANCE'];
+export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES', 'SIEGE SHELLS', 'CARPET BOMBING', 'PLASMA MORTAR', 'ORBITAL LANCE', 'DOOMSDAY ARRAY'];
 export const ONSLAUGHT_HITS = 5;
 export const BOSSES = [
   { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0 },
@@ -77,12 +77,23 @@ export function makeBoss(stageNo) {
   return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, age: 0, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
-export function newRun(seed, mk = plain) {
+// ---------------------------------------------------------------- World Boss raid
+// One colossal war machine a week. Everyone fights the same board; nobody can kill it alone, so every run's
+// total damage counts toward one shared health pool.
+export const RAID = { hp: 1_000_000_000, stage: 1, type: 8 };
+export const weekNumber = (day) => Math.floor(day / 7);
+export const raidSeed = (week) => (Number((BigInt(week) * 2246822519n + 0x0bade5n) & 0xffffffffn)) >>> 0;
+export function makeRaidBoss() {
+  return { name: 'OMEGA', role: 'world boss', color: '#FF2E4D', type: RAID.type, hp: RAID.hp, max: RAID.hp, lag: RAID.hp, age: 0, brain: new Array(BRAINS[RAID.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
+}
+
+export function newRun(seed, mk = plain, opts = {}) {
   const R = rng(seed), CR = rng(seed ^ 0x5bd1e995);
   const st = {
     seed, stageNo: 1, bossesDown: 0, score: 0, moves: MOVES_PER_DAY, base: BASE_MAX, baseMax: BASE_MAX, shield: 0, shieldMax: 1,
-    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, boss: makeBoss(1), cascade: 0, over: false,
+    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid,
   };
+  if (opts.raid) { st.stageNo = RAID.stage; st.boss = makeRaidBoss(); }
   return { st, R, CR, G: freshBoard(R, mk) };
 }
 
@@ -410,7 +421,7 @@ export function simNight(plan, strikes, crState) {
   items.sort((x, y) => x.t - y.t || x.q - y.q);
 
   let hp = plan.hp, base = plan.base, shield = plan.shield, score = plan.score, left = plan.strikes, dead = false, over = false, killT = -1;
-  let brain = plan.brain.slice();
+  let brain = plan.brain.slice(), damage = 0;
   const circuit = BRAINS[plan.type];
   const act = {};
   const live = new Set();
@@ -428,6 +439,7 @@ export function simNight(plan, strikes, crState) {
       const crit = CR.next() < 429496730; // 10%
       const d = it.dmg * (crit ? 2 : 1);
       hp = Math.max(0, hp - d);
+      damage += d;
       score += rdiv(d, 5); // 2 points per HP
       out.push({ ...it, d, crit, hp, score });
       if (hp <= 0) { dead = true; killT = it.t; out.push({ t: it.t, type: 'kill' }); }
@@ -471,7 +483,7 @@ export function simNight(plan, strikes, crState) {
   const refund = [0, 0, 0];
   if (dead) for (const ev of plan.events) if (ev.kind !== 'boss' && ev.t > killT) refund[ev.kind] += 6;
   return {
-    entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT, refund,
+    entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT, refund, damage,
     lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, base, shield, score, strikes: left, crEnd: CR.s, brain,
   };
 }
@@ -484,6 +496,7 @@ export function finishNight(run, script) {
   st.score = script.score;
   st.strikes = script.strikes;
   st.boss.brain = script.brain;
+  st.damage += script.damage;
   st.ammo = [0, 0, 0];
   if (script.outcome === 'kill') for (let w = 0; w < 3; w++) st.charge[w] += script.refund[w];
   run.CR.s = script.crEnd;
@@ -517,8 +530,8 @@ export function parseAction(s) {
   if (s[0] === 'N') return { night: true, strikes: s.length > 1 ? s.slice(1).split('|').map(Number) : [] };
   return { night: false, a: [+s[0], +s[1]], b: [+s[2], +s[3]] };
 }
-export function replay(seed, actions) {
-  const run = newRun(seed);
+export function replay(seed, actions, opts = {}) {
+  const run = newRun(seed, plain, opts);
   for (let i = 0; i < actions.length; i++) {
     if (run.st.over) return { ok: false, reason: `action ${i} after the base fell`, st: run.st };
     const act = parseAction(actions[i]);

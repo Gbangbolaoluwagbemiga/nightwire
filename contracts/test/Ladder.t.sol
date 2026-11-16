@@ -17,8 +17,8 @@ contract LadderTest is Test {
 
     function setUp() public {
         vm.createSelectFork(vm.envOr("FORK_URL", string("http://127.0.0.1:8547")));
-        address armory = vm.envOr("ARMORY", address(0x1900801e311184063b9d9C119C9D98AA4950E12c));
-        eng = new NightwireEngine(ICircuits(armory), [uint256(1), 2, 3, 4, 5, 6, 7, 8]);
+        address armory = vm.envOr("ARMORY", address(0x804F00c9FDecBF32C38a73D6b304617D292DcE0f));
+        eng = new NightwireEngine(ICircuits(armory), [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9]);
         ladder = new NightwireLadder(eng);
         j = vm.readFile(string.concat(vm.projectRoot(), "/test/fixtures.json"));
         day = vm.parseJsonUint(j, ".day");
@@ -53,6 +53,9 @@ contract LadderTest is Test {
         assertEq(b.length, 3);
         assertGe(b[0].score, b[1].score);
         assertGe(b[1].score, b[2].score);
+        assertTrue(b[0].player != b[1].player && b[1].player != b[2].player && b[0].player != b[2].player, "distinct players");
+        uint256 total = b[0].score + b[1].score + b[2].score;
+        assertEq(total, scores[0] + scores[1] + scores[2], "every submitted score is on the board once");
         assertEq(ladder.allTimeBoard().length, 3);
     }
 

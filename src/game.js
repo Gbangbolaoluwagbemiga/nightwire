@@ -264,7 +264,7 @@ function buildSprites() {
   SPR.red = glow('#ff4a4a', 40, 0.95);
   SPR.flame = glow('#ffb347', 30, 0.95);
   SPR.dot = {};
-  [...GEMS.map((g) => g.color), '#ff4a4a', '#ffffff', '#ffb347', ...BOSSES.map((b) => b.color)].forEach((c) => { SPR.dot[c] = glow(c, 24, 0.95); });
+  [...GEMS.map((g) => g.color), '#ff4a4a', '#ffffff', '#ffb347', ...BOSSES.map((b) => b.color), E.makeRaidBoss().color].forEach((c) => { SPR.dot[c] = glow(c, 24, 0.95); });
   SPR.jet = sprite(70, 46, (g) => { g.translate(35, 23); drawJet(g, 64); });
   SPR.bomber = sprite(120, 80, (g) => { g.translate(60, 40); drawJet(g, 112, '#6f7a85'); });
   SPR.board = sprite(N * CELL + 16, N * CELL + 16, (g) => {
@@ -383,7 +383,7 @@ function buzz(ms) { try { navigator.vibrate?.(ms); } catch { /* unsupported */ }
 let shownScore = 0;
 function addScore(n) { S.score += Math.round(n); }
 function syncHud() {
-  ui.stage.textContent = `STAGE ${S.stageNo}`;
+  ui.stage.textContent = S.raid ? 'RAID' : `STAGE ${S.stageNo}`;
   ui.moves.textContent = S.moves;
   ui.moves.classList.toggle('zero', S.moves <= 3 && S.phase === 'day');
   ui.strikeTxt.textContent = S.strikes;
@@ -599,13 +599,28 @@ const HINTS = {
   solo: 'Hold the line as long as you can.',
   ai: 'Same battlefield, same supplies. Outscore the AI commander, live.',
   daily: 'One battlefield for everyone today. New one at 00:00 UTC.',
+  raid: 'You cannot kill it alone. Every run\'s damage comes off one shared health pool.',
 };
+let raidInfo = null;
+async function loadRaid() {
+  if (!API.enabled()) { $('rcLeft').textContent = ''; $('rcSub').textContent = 'World boss · the shared pool needs the online board'; return; }
+  try {
+    raidInfo = await API.raidState();
+    const left = Math.max(0, raidInfo.poolHp - raidInfo.dealt);
+    $('rcFill').style.width = `${(left / raidInfo.poolHp) * 100}%`;
+    $('rcLeft').textContent = raidInfo.down ? 'DOWN' : `${fmt(left / 10)} HP left`;
+    const days = Math.max(0, Math.ceil((raidInfo.endsAt - Date.now()) / 86400000));
+    $('rcSub').textContent = raidInfo.down ? `Destroyed by ${raidInfo.raiders} raiders. Keep hitting it for the board.` : `${raidInfo.raiders} raider${raidInfo.raiders === 1 ? '' : 's'} · ${raidInfo.runs} runs · ${days} day${days === 1 ? '' : 's'} left this week`;
+  } catch { $('rcSub').textContent = 'World boss · could not reach the raid server'; }
+}
 function syncPick() {
   if (pick.kind === 'duel' && !DUEL) pick.kind = 'solo';
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === pick.kind));
   document.querySelectorAll('#lvlSeg button').forEach((b) => b.classList.toggle('on', b.dataset.l === pick.level));
   $('lvlSeg').classList.toggle('on', pick.kind === 'ai');
   $('modeHint').textContent = pick.kind === 'duel' ? '' : HINTS[pick.kind];
+  $('raidCard').classList.toggle('on', pick.kind === 'raid');
+  if (pick.kind === 'raid') loadRaid();
   $('duelCard').classList.toggle('on', pick.kind === 'duel');
   const best = loadRuns().filter((r) => r.mode === pick.kind).reduce((m, r) => Math.max(m, r.score), pick.kind === 'solo' ? S.best : 0);
   ui.best.textContent = fmt(best);
@@ -616,6 +631,7 @@ document.querySelectorAll('#lvlSeg button').forEach((b) => b.addEventListener('c
 function modeFromPick() {
   if (pick.kind === 'ai') return { kind: 'ai', level: pick.level, seed: 0 };
   if (pick.kind === 'daily') return { kind: 'daily', level: null, seed: todaySeed(), day: E.dayNumber() };
+  if (pick.kind === 'raid') { const week = E.weekNumber(E.dayNumber()); return { kind: 'raid', level: null, seed: E.raidSeed(week), week }; }
   if (pick.kind === 'duel') return { kind: 'duel', level: null, seed: DUEL.seed, ghost: DUEL };
   return { kind: 'solo', level: null, seed: 0 };
 }
@@ -644,10 +660,10 @@ ui.mute.addEventListener('click', () => { unlockAudio(); ui.mute.classList.toggl
 const todaySeed = () => E.dailySeed(E.dayNumber());
 function newGame(mode = MODE) {
   MODE = { ...mode, seed: mode.seed || E.randomSeed() };
-  RUN = E.newRun(MODE.seed, mkGem);
+  RUN = E.newRun(MODE.seed, mkGem, { raid: MODE.kind === 'raid' });
   Object.assign(S, RUN.st, {
     events: [], proj: [], fx: [], texts: [], bstate: 'idle', sel: null, press: null, hint: null, swap: null, tut: 0, slow: 1,
-    shown: [0, 0, 0, 0, 0], tierShown: [0, 0, 0, 0, 0], baseHold: 0, shieldHold: 0, lead: 0, leadT: 0,
+    shown: [0, 0, 0, 0, 0], tierShown: [0, 0, 0, 0, 0], baseHold: 0, shieldHold: 0, lead: 0, leadT: 0, nightDmg: 0,
   });
   RUN.st = S;
   G = RUN.G;
@@ -678,6 +694,7 @@ function startDay(first = false) {
     const msg = MODE.kind === 'ai' ? `Same battlefield as the <b>AI commander</b>. Outscore it!`
       : MODE.kind === 'duel' ? `Your friend scored <b>${MODE.ghost.score}</b> on this exact battlefield. Beat it!`
         : MODE.kind === 'daily' ? `<b>Daily Op</b>: everyone fights this battlefield today.`
+          : MODE.kind === 'raid' ? `<b>OMEGA</b> is over the city. Hit it as hard as you can before your base falls.`
           : `<b>${S.boss.name}</b> is inbound. Swap supplies to <b>match 3</b> and arm the base.`;
     setTimeout(() => toast(msg, false, 3600), 500);
   }
@@ -696,6 +713,7 @@ function startNight() {
   NIGHT.script = E.simNight(plan, [], NIGHT.cr);
   S.shown = S.charge.map((v) => v / 2);
   S.nt = 0;
+  S.nightDmg = 0;
   syncHud();
   banner('INCOMING!', `${S.boss.name} · ${S.boss.role}`);
   sfx.siren();
@@ -820,6 +838,7 @@ function hitBoss(e) {
   const b = S.boss;
   b.hp = e.hp;
   S.score = e.score;
+  S.nightDmg += e.d;
   b.flash = 0.08;
   const big = e.src === 1 || e.src === 'bomb';
   const color = e.src === 'bomb' ? '#ffb347' : GEMS[e.src].color;
@@ -959,32 +978,37 @@ function gameOver() {
   ui.strikeBtn.classList.remove('show');
   sfx.over();
   closeNight();
-  const check = E.replay(MODE.seed, LOG);
+  const check = E.replay(MODE.seed, LOG, { raid: MODE.kind === 'raid' });
   const ok = check.ok && check.st.over && check.st.score === S.score;
   const prev = loadRuns().filter((r) => r.mode === MODE.kind).reduce((m, r) => Math.max(m, r.score), 0);
   const isBest = S.score > prev;
   lastResult = { mode: MODE.kind, level: MODE.level, score: S.score, stage: S.stageNo, kills: S.bossesDown, t: Date.now(), seed: MODE.seed, ok, log: LOG.join(',') };
   if (S.score > 0) saveRun(lastResult);
   $('ovGlobal').textContent = '';
-  if (ok && S.score > 0 && API.enabled() && MODE.kind !== 'duel') {
+  if (ok && S.damage > 0 && API.enabled() && MODE.kind === 'raid') {
+    API.submitRaid({ week: MODE.week, actions: LOG, name: callsign || 'Anonymous' })
+      .then((r) => { raidInfo = r.raid; const left = Math.max(0, r.raid.poolHp - r.raid.dealt); $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · raider <b>#${r.rank}</b> this week · OMEGA ${r.raid.down ? '<b>is DOWN</b>' : `has <b>${fmt(left / 10)} HP</b> left`}`; })
+      .catch((e) => { $('ovGlobal').textContent = `Raid: ${String(e.message).slice(0, 80)}`; });
+  } else if (ok && S.score > 0 && API.enabled() && MODE.kind !== 'duel') {
     API.submitRun({ mode: MODE.kind, level: MODE.level, day: MODE.day, seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous' })
       .then((r) => { $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · global rank <b>#${r.rank}</b>${MODE.kind === 'daily' ? ' today' : ''}`; })
       .catch((e) => { $('ovGlobal').textContent = `Global board: ${String(e.message).slice(0, 80)}`; });
   }
   if (MODE.kind === 'solo' && isBest) { S.best = S.score; try { localStorage.setItem('nw-best', String(S.best)); } catch { /* ignore */ } }
   setTimeout(() => {
-    $('ovTitle').textContent = 'The base fell';
+    $('ovTitle').textContent = MODE.kind === 'raid' ? 'Raid over' : 'The base fell';
     $('ovTitle').className = 'ov-title';
-    $('ovDay').textContent = `Reached stage ${S.stageNo}${MODE.kind === 'daily' ? ' · Daily Op' : ''}`;
+    $('ovDay').textContent = MODE.kind === 'raid' ? `You hit OMEGA for ${fmt(S.damage / 10)} HP` : `Reached stage ${S.stageNo}${MODE.kind === 'daily' ? ' · Daily Op' : ''}`;
+    $('ovKillsL').textContent = MODE.kind === 'raid' ? 'DAMAGE' : 'BOSSES';
     $('ovScore').textContent = fmt(S.score);
-    $('ovKills').textContent = S.bossesDown;
+    $('ovKills').textContent = MODE.kind === 'raid' ? fmt(S.damage / 10) : S.bossesDown;
     $('ovBest').textContent = fmt(Math.max(prev, S.score));
     $('ovNew').classList.toggle('on', isBest && S.score > 0);
     $('ovVerify').innerHTML = ok
       ? `<span class="ok">✓</span> Score verified by replaying all ${LOG.length} actions · seed ${MODE.seed.toString(16).toUpperCase()}`
       : `<span class="bad">✗</span> Replay mismatch (${check.reason || (!check.st.over ? 'replay did not end the run' : `replay gave ${check.st.score}`)})`;
     $('ovVs').classList.toggle('on', !!RIVAL);
-    $('chainRow').classList.toggle('on', C.enabled() && ok && MODE.kind !== 'duel' && S.score > 0);
+    $('chainRow').classList.toggle('on', ok && S.score > 0 && MODE.kind !== 'duel' && (MODE.kind === 'raid' ? C.raidEnabled() : C.enabled()));
     $('chainBtn').disabled = false;
     $('chainSt').textContent = MODE.kind === 'daily' ? 'Replayed by the Nightwire engine on X Layer, then ranked on today\'s board.' : 'Replayed by the Nightwire engine on X Layer, then ranked all-time.';
     if (RIVAL) {
@@ -1031,11 +1055,12 @@ const PERSONA = [
   'Stealth: one cloaked repair as soon as it drops below 75%, then EMPs every raised shield. One LATCH remembers the cloak.',
   'Gait: barrage, barrage, focus, in step with its six legs; always focus fire when critical. Two LATCHes count the steps.',
   'Orbital: charges its lance every other beat; when critical it repairs on the off-beats. One LATCH is the charge.',
+  'World boss: a four-beat cycle. Barrage, focus fire, EMP if your shield is up, then focus fire once enraged. Two LATCHes keep the beat.',
 ];
 const inspector = makeInspector($('chipSheet'), {
   onTap: () => sfx.select(),
   onInfo: ({ type, c }) => {
-    const b = E.BOSSES[type], ch = E.brainOf(type).chip;
+    const b = type === 8 ? { name: 'OMEGA' } : E.BOSSES[type], ch = E.brainOf(type).chip;
     $('chName').textContent = `${b.name} brain`;
     const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${type + 1} on the Nightwire Armory, X Layer.` : 'Taped out on the Nightwire Armory processor at launch.';
     $('chInfo').textContent = `${c.nand} NAND + ${c.latch} LATCH · ${(ch.netlist.length - 2) / 2}-byte netlist. ${PERSONA[type]} ${where}`;
@@ -1114,6 +1139,19 @@ async function submitToChain() {
   const hex = E.encodeBinary(lastResult.log.split(','));
   const day = MODE.kind === 'daily' ? MODE.day : C.FREE_PLAY;
   btn.disabled = true;
+  if (MODE.kind === 'raid') {
+    try {
+      st.textContent = 'Asking X Layer to replay your raid…';
+      const chk = await C.checkRun(lastResult.seed, hex, true);
+      if (!chk.tooLong && (!chk.ok || chk.damage !== S.damage)) { st.innerHTML = '<span class="bad">✗</span> X Layer\'s replay disagrees.'; btn.disabled = false; return; }
+      st.innerHTML = `<span class="ok">✓</span> X Layer replayed it: <b>${fmt(S.damage / 10)} HP</b> to OMEGA. Confirm in your wallet…`;
+      const { hash } = await C.submitRaidRun(MODE.week, hex);
+      const good = await C.waitFor(hash);
+      st.innerHTML = good ? `<span class="ok">✓ On chain.</span> Your damage counts toward this week's OMEGA prize pool. <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>` : '<span class="bad">✗</span> The transaction failed.';
+      if (good) sfx.upgrade();
+    } catch (e) { st.innerHTML = `<span class="bad">✗</span> ${String(e.message || e).slice(0, 140)}`; btn.disabled = false; }
+    return;
+  }
   try {
     st.textContent = 'Asking X Layer to replay your run…';
     const chk = await C.checkRun(lastResult.seed, hex);
@@ -1155,9 +1193,10 @@ async function showGlobalRanks() {
   const list = $('rankList');
   list.innerHTML = '<li class="empty">Loading the global board…</li>';
   try {
-    const [d, s, a] = await Promise.all([API.board('daily'), API.board('solo'), API.board('ai')]);
+    const [d, s, a, r] = await Promise.all([API.board('daily'), API.board('solo'), API.board('ai'), API.raidState()]);
     const rows = (xs) => (xs.length ? xs.slice(0, 5).map((r, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">${r.name.replace(/[<>&]/g, '')}<br>stage ${r.stage}${r.level ? ` · ${r.level}` : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No runs yet.</li>');
-    list.innerHTML = `<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d.rows)}<li class="sec"><span>SOLO</span></li>${rows(s.rows)}<li class="sec"><span>VS AI</span></li>${rows(a.rows)}`;
+    const raiders = r.top.length ? r.top.slice(0, 5).map((p, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(p.damage / 10)}</span><span class="rm">${p.name.replace(/[<>&]/g, '')}<br>${p.runs} run${p.runs > 1 ? 's' : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No raiders yet.</li>';
+    list.innerHTML = `<li class="sec"><span>OMEGA RAID · ${r.down ? 'DOWN' : `${fmt(Math.max(0, r.poolHp - r.dealt) / 10)} HP LEFT`}</span></li>${raiders}<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d.rows)}<li class="sec"><span>SOLO</span></li>${rows(s.rows)}<li class="sec"><span>VS AI</span></li>${rows(a.rows)}`;
   } catch (e) {
     list.innerHTML = `<li class="empty">Couldn't reach the global board (${String(e.message || e).slice(0, 60)}).</li>`;
   }
@@ -1592,17 +1631,28 @@ function drawBossBar() {
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.fillStyle = b.color;
-  ctx.fillText(b.name + (b.rage ? `  RAGE ${b.rage}` : ''), x, y);
+  ctx.fillText(b.name + (S.raid ? '  WORLD BOSS' : '') + (b.rage ? `  RAGE ${b.rage}` : ''), x, y);
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(232,238,247,0.8)';
-  ctx.fillText(`${Math.ceil(b.hp / 10)} / ${Math.ceil(b.max / 10)}`, x + w, y);
-  rr(ctx, x, y + 5, w, 8, 4);
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.fillRect(x + 1, y + 6, (w - 2) * (b.lag / b.max), 6);
-  ctx.fillStyle = b.color;
-  ctx.fillRect(x + 1, y + 6, (w - 2) * (b.hp / b.max), 6);
+  if (S.raid) { // the shared pool: everyone's damage this week, minus what you are dealing now
+    const mine = S.damage + (S.phase === 'night' && NIGHT ? S.nightDmg : 0);
+    const pool = raidInfo ? raidInfo.poolHp : 1, left = raidInfo ? Math.max(0, pool - raidInfo.dealt - mine) : pool;
+    ctx.fillText(raidInfo ? `${fmt(left / 10)} HP · YOU ${fmt(mine / 10)}` : `YOU ${fmt(mine / 10)}`, x + w, y);
+    rr(ctx, x, y + 5, w, 8, 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fill();
+    ctx.fillStyle = b.color;
+    ctx.fillRect(x + 1, y + 6, (w - 2) * (left / pool), 6);
+  } else {
+    ctx.fillText(`${Math.ceil(b.hp / 10)} / ${Math.ceil(b.max / 10)}`, x + w, y);
+    rr(ctx, x, y + 5, w, 8, 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(x + 1, y + 6, (w - 2) * (b.lag / b.max), 6);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(x + 1, y + 6, (w - 2) * (b.hp / b.max), 6);
+  }
   // live readout of the boss's brain chip (a TapeOut circuit)
   const br = E.brainOf(b.type), c = S.chip, fresh = c && S.time - c.t < 2.2 && S.phase === 'night';
   ctx.font = '700 8.5px "JetBrains Mono", monospace';
@@ -1748,6 +1798,42 @@ function bossShape2(type, t, white, col, recoil, steel, dark, hi, acc) {
     for (const [ex, ey] of [[-14, 18], [14, 18], [-8, 26], [8, 26]]) { ctx.beginPath(); ctx.arc(ex, ey, 2.4, 0, Math.PI * 2); ctx.fill(); }
     return { ex: 0, ey: 10, er: 8 };
   }
+  if (type === 8) { // OMEGA, the world boss: a floating citadel
+    for (const sd of [-1, 1]) { // claw arms on chains, swinging
+      const sw = Math.sin(t * 1.3 + (sd > 0 ? 1.4 : 0)) * 0.35;
+      ctx.save(); ctx.translate(sd * 118, 6); ctx.rotate(sw * sd);
+      ctx.strokeStyle = dark; ctx.lineWidth = 3; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 52); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = steel; ctx.beginPath(); ctx.moveTo(-12, 52); ctx.lineTo(12, 52); ctx.lineTo(16, 70); ctx.lineTo(6, 62); ctx.lineTo(0, 74); ctx.lineTo(-6, 62); ctx.lineTo(-16, 70); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = dark; // hull
+    ctx.beginPath(); ctx.moveTo(-150, -6); ctx.lineTo(-108, -48); ctx.lineTo(108, -48); ctx.lineTo(150, -6); ctx.lineTo(116, 34); ctx.lineTo(-116, 34); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = steel;
+    ctx.beginPath(); ctx.moveTo(-132, -6); ctx.lineTo(-100, -38); ctx.lineTo(100, -38); ctx.lineTo(132, -6); ctx.lineTo(104, 24); ctx.lineTo(-104, 24); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = hi; ctx.fillRect(-96, -34, 192, 4);
+    for (let j = -5; j <= 5; j++) { // running lights
+      const on = Math.sin(t * 6 - j * 0.7) > 0.3;
+      ctx.fillStyle = white ? '#fff' : on ? col : '#3a1018';
+      ctx.fillRect(j * 18 - 3, 16, 6, 4);
+    }
+    for (const [cx, cy, ph] of [[-70, -40, 0], [70, -40, 2], [0, 26, 4]]) { // cannons tracking the base
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 2 + Math.sin(t * 0.8 + ph) * 0.5 - (cy < 0 ? Math.PI : 0));
+      ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = steel; ctx.fillRect(-3.5, 0, 7, 26 - recoil * 8);
+      ctx.restore();
+    }
+    // reactor core with rotating rings
+    const pulse = 0.55 + 0.45 * Math.sin(t * 4);
+    ctx.fillStyle = white ? '#fff' : '#1a0c10'; ctx.beginPath(); ctx.arc(0, -8, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = white ? '#fff' : rgba(col, 0.9); ctx.lineWidth = 3;
+    ctx.setLineDash([14, 8]); ctx.lineDashOffset = -t * 40;
+    ctx.beginPath(); ctx.arc(0, -8, 26, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineDashOffset = t * 60; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, -8, 19, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    if (!white) { ctx.globalCompositeOperation = 'lighter'; const keep = ctx.globalAlpha; ctx.globalAlpha = keep * pulse; ctx.drawImage(SPR.red, -30, -38, 60, 60); ctx.globalAlpha = keep; ctx.globalCompositeOperation = 'source-over'; }
+    return { ex: 0, ey: -8, er: 11 };
+  }
   // WARDEN: orbital platform with turning solar wings and a lance emitter charging underneath
   const tilt = Math.cos(t * 0.8);
   for (const sd of [-1, 1]) {
@@ -1768,7 +1854,7 @@ function bossShape2(type, t, white, col, recoil, steel, dark, hi, acc) {
   return { ex: 0, ey: 2, er: 9 };
 }
 
-const FLYERS = new Set([1, 2, 3, 5, 7]);
+const FLYERS = new Set([1, 2, 3, 5, 7, 8]);
 function drawBoss() {
   const b = S.boss;
   if (!b) return;

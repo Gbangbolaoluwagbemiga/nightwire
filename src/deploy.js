@@ -5,8 +5,9 @@ export const DEPLOY = {
   rpc: 'https://rpc.xlayer.tech',
   explorer: 'https://www.oklink.com/xlayer',
   armory: null, // TapeOut processor holding the war-machine brain chips
-  brainIds: [1, 2, 3, 4, 5, 6, 7, 8],
+  brainIds: [1, 2, 3, 4, 5, 6, 7, 8, 9],
   engine: null,
   ladder: null,
+  raid: null, // NightwireRaid (World Boss)
   api: 'https://api-production-fbf29f4a.up.railway.app', // Railway service (server/index.mjs)
 };

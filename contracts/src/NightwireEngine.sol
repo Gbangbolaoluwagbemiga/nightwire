@@ -26,13 +26,13 @@ contract NightwireEngine {
     uint32 constant BOSS_FLIGHT = 700;
 
     ICircuits public immutable armory;
-    uint256[8] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden
-    uint8[8] internal brainStateBits;
+    uint256[9] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden, omega (raid)
+    uint8[9] internal brainStateBits;
 
-    constructor(ICircuits armory_, uint256[8] memory ids) {
+    constructor(ICircuits armory_, uint256[9] memory ids) {
         armory = armory_;
         brainIds = ids;
-        for (uint256 i; i < 8; i++) {
+        for (uint256 i; i < 9; i++) {
             (uint32 nIn, uint32 nOut, uint32 nState,) = armory_.circuitInfo(ids[i]);
             require(nIn == 7 && nOut == 2 && nState <= 8, "brain pins");
             brainStateBits[i] = uint8(nState);
@@ -62,6 +62,7 @@ contract NightwireEngine {
         bool present;
         uint8 btype;
         uint8 brain; // packed state bits
+        uint256 damage; // total damage dealt this run (the raid contribution)
     }
 
     struct Result {
@@ -71,6 +72,7 @@ contract NightwireEngine {
         uint32 stage;
         uint32 bossesDown;
         uint256 failedAt; // action index where replay failed (when !ok)
+        uint256 damage; // total damage dealt (tenths)
     }
 
     // ------------------------------------------------------------------ randomness (mulberry32)
@@ -124,7 +126,9 @@ contract NightwireEngine {
         g.brain = 0;
     }
 
-    function _newRun(uint32 seed) internal pure returns (G memory g) {
+    uint32 constant RAID_HP = 1_000_000_000;
+
+    function _newRun(uint32 seed, bool raid) internal pure returns (G memory g) {
         g.rs = seed;
         unchecked {
             g.crs = seed ^ 0x5bd1e995;
@@ -134,6 +138,11 @@ contract NightwireEngine {
         g.base = BASE_MAX;
         g.runBuf = new uint256[](32);
         _makeBoss(g);
+        if (raid) { // OMEGA, the world boss: nobody kills it alone
+            g.hp = RAID_HP;
+            g.maxHp = RAID_HP;
+            g.btype = 8;
+        }
         _freshBoard(g);
     }
 
@@ -780,6 +789,7 @@ contract NightwireEngine {
                 uint256 d = (val & 0xffffffff) * (o < 429496730 ? 2 : 1);
                 hp = d >= hp ? 0 : hp - uint32(d);
                 g.score += _rdiv(d, 5);
+                g.damage += d;
                 if (hp == 0) nt.killT = key >> 40;
             } else if (typ == 3) {
                 if ((hp == 0)) continue;
@@ -845,8 +855,17 @@ contract NightwireEngine {
     }
 
     // ------------------------------------------------------------------ replay
-    function replay(uint32 seed, bytes calldata actions) public view returns (Result memory res) {
-        G memory g = _newRun(seed);
+    function replay(uint32 seed, bytes calldata actions) public view returns (Result memory) {
+        return _replay(seed, actions, false);
+    }
+
+    /// World Boss raid: same rules against OMEGA; Result.damage is the run's contribution.
+    function replayRaid(uint32 seed, bytes calldata actions) public view returns (Result memory) {
+        return _replay(seed, actions, true);
+    }
+
+    function _replay(uint32 seed, bytes calldata actions, bool raid) internal view returns (Result memory res) {
+        G memory g = _newRun(seed, raid);
         uint256 i;
         uint256 idx;
         while (i < actions.length) {
@@ -877,10 +896,10 @@ contract NightwireEngine {
             }
             idx++;
         }
-        res = Result(true, g.over, g.score, g.stageNo, g.bossesDown, 0);
+        res = Result(true, g.over, g.score, g.stageNo, g.bossesDown, 0, g.damage);
     }
 
     function _fail(G memory g, uint256 idx) internal pure returns (Result memory) {
-        return Result(false, g.over, g.score, g.stageNo, g.bossesDown, idx);
+        return Result(false, g.over, g.score, g.stageNo, g.bossesDown, idx, g.damage);
     }
 }

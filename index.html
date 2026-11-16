@@ -67,8 +67,9 @@
       </ol>
       <div class="picker">
         <div class="duelcard" id="duelCard"><b>Duel:</b> a friend scored <b id="duelScore">0</b> on this exact battlefield. Beat it.</div>
-        <div class="seg" id="modeSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily Op</button></div>
+        <div class="seg" id="modeSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily Op</button><button data-m="raid">Raid</button></div>
         <div class="seg lvls" id="lvlSeg"><button data-l="easy">Easy</button><button data-l="normal">Normal</button><button data-l="hard">Hard</button></div>
+        <div class="raidcard" id="raidCard"><div class="rc-top"><b>OMEGA</b><span id="rcLeft">…</span></div><div class="rc-bar"><i id="rcFill"></i></div><div class="rc-sub" id="rcSub">World boss · everyone this week shares one health pool</div></div>
         <p class="modehint" id="modeHint"></p>
       </div>
       <button class="cta big" id="playBtn">Play</button>
@@ -80,7 +81,7 @@
       <div class="ov-day" id="ovDay">Stage 1</div>
       <div class="stats">
         <div><span class="lbl">SCORE</span><b id="ovScore">0</b></div>
-        <div><span class="lbl">BOSSES</span><b id="ovKills">0</b></div>
+        <div><span class="lbl" id="ovKillsL">BOSSES</span><b id="ovKills">0</b></div>
         <div><span class="lbl">BEST</span><b id="ovBest">0</b></div>
       </div>
       <div class="vs" id="ovVs">
@@ -112,7 +113,7 @@
       <div id="chipSheet">
         <div class="sh-title" id="chName">Brain chip</div>
         <p class="sh-sub" id="chInfo"></p>
-        <div class="seg chseg" id="chSeg"><button data-t="0">IRONCLAW</button><button data-t="1">STORMWING</button><button data-t="2">DREAD.</button><button data-t="3">HIVE</button><button data-t="4">BEHEMOTH</button><button data-t="5">SPECTRE</button><button data-t="6">TITAN</button><button data-t="7">WARDEN</button></div>
+        <div class="seg chseg" id="chSeg"><button data-t="0">IRONCLAW</button><button data-t="1">STORMWING</button><button data-t="2">DREAD.</button><button data-t="3">HIVE</button><button data-t="4">BEHEMOTH</button><button data-t="5">SPECTRE</button><button data-t="6">TITAN</button><button data-t="7">WARDEN</button><button data-t="8">OMEGA</button></div>
         <canvas id="chipCv"></canvas>
         <div class="row2"><button class="ghostbtn" id="chStep">Step one beat</button><button class="ghostbtn" id="chReset">Clear memory</button></div>
         <p class="sh-sub" id="chNote">Tap an input to flip it. Green = 1. Yellow squares are LATCHes: the chip's memory between beats. This is the exact netlist the boss runs on X Layer.</p>

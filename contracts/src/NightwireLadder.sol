@@ -120,7 +120,9 @@ contract NightwireLadder {
         if (n == TOP && list[n - 1].score >= e.score) return;
         if (n < TOP) { list.push(e); n++; } else { list[n - 1] = e; }
         for (uint256 i = n - 1; i > 0 && list[i - 1].score < list[i].score; i--) {
-            (list[i - 1], list[i]) = (list[i], list[i - 1]);
+            Entry memory tmp = list[i - 1]; // a tuple swap of storage structs would duplicate one of them
+            list[i - 1] = list[i];
+            list[i] = tmp;
         }
     }
 

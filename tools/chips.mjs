@@ -80,6 +80,16 @@ export const DESIGNS = {
     const rep = B.and(B.not(q.q), crit);
     return [B.or(q.q, rep), rep];
   }),
+  // OMEGA (world boss): a four-beat cycle. Barrage, focus, EMP if a shield is up, then focus once enraged.
+  omega: brain((B, i) => {
+    const c0 = B.latch(), c1 = B.latch();
+    c0.set(B.not(c0.q));
+    c1.set(B.xor(c1.q, c0.q));
+    const isOne = B.and(c0.q, B.not(c1.q)), isTwo = B.and(B.not(c0.q), c1.q), isThree = B.and(c0.q, c1.q);
+    const emp = B.and(isTwo, i.shield);
+    const focus = B.or(isOne, B.and(isThree, B.or(i.r0, i.r1)));
+    return [focus, emp];
+  }),
 };
 
 // plain-JS statement of the same rules, to test the chips against
@@ -91,6 +101,7 @@ export const SPEC = {
   behemoth: (s, x) => { const t = s.t || 0; const emp = x.rage >= 2 && x.shield; return { a: emp ? 2 : t ? 1 : 0, s: { t: 1 - t } }; },
   spectre: (s, x) => { const rep = x.bq !== 3 && !s.u; const emp = !rep && x.shield; return { a: rep ? 3 : emp ? 2 : 0, s: { u: s.u || rep ? 1 : 0 } }; },
   titan: (s, x) => { const c = s.c || 0; return { a: c === 2 || x.bq === 0 ? 1 : 0, s: { c: (c + 1) % 3 } }; },
+  omega: (s, x) => { const c = s.c || 0; return { a: c === 1 ? 1 : c === 2 ? (x.shield ? 2 : 0) : c === 3 ? (x.rage >= 1 ? 1 : 0) : 0, s: { c: (c + 1) % 4 } }; },
   warden: (s, x) => { const q = s.q || 0; return { a: q ? 1 : x.bq === 0 ? 3 : 0, s: { q: 1 - q } }; },
 };
 
@@ -106,6 +117,6 @@ if (process.argv[1] && process.argv[1].endsWith('chips.mjs')) {
 export const CHIPS = ${JSON.stringify(out, null, 2)};
 export const ONCHAIN = { chainId: 196, processor: null, ids: {} };
 `);
-  const order = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden'];
+  const order = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden', 'omega'];
   fs.writeFileSync(new URL('../contracts/chips.json', import.meta.url), JSON.stringify({ netlists: order.map((k) => out[k].netlist), names: order, nand: order.map((k) => out[k].nand), latch: order.map((k) => out[k].latch) }, null, 2));
 }

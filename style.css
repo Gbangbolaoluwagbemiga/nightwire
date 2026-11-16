@@ -305,3 +305,13 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 #ranks .callsign { width: 100%; margin: 0 0 calc(var(--u) * 10); display: none; }
 #ranks .callsign.on { display: block; }
 #ranks .seg button { font-size: calc(var(--u) * 11.5); }
+
+/* Raid */
+#modeSeg button { font-size: calc(var(--u) * 13.5); }
+.raidcard { display: none; margin-top: calc(var(--u) * 10); padding: calc(var(--u) * 10) calc(var(--u) * 12); border-radius: calc(var(--u) * 14); background: rgba(255, 46, 77, .08); border: 1px solid rgba(255, 46, 77, .45); text-align: left; }
+.raidcard.on { display: block; }
+.rc-top { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: calc(var(--u) * 13); }
+.rc-top b { color: #FF2E4D; letter-spacing: .12em; }
+.rc-bar { height: calc(var(--u) * 8); margin: calc(var(--u) * 7) 0 calc(var(--u) * 6); border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+.rc-bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff2e4d, #ff8a3d); transition: width .6s; }
+.rc-sub { font-size: calc(var(--u) * 11.5); color: var(--muted); }

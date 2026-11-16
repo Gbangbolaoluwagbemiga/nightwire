@@ -34,8 +34,8 @@ function value(before, after, smart) {
   return v + sp * 1.6 + (s1.base <= 0 ? -999 : 0);
 }
 
-export function makeRival(seed, level, ghostActions = null) {
-  const run = E.newRun(seed);
+export function makeRival(seed, level, ghostActions = null, opts = {}) {
+  const run = E.newRun(seed, E.plain, opts);
   const cfg = LEVELS[level];
   const R = {
     run, level, label: cfg.label, phase: 'day', timer: 1.4, night: null, flash: [], ev: [], log: [], dirty: true,
