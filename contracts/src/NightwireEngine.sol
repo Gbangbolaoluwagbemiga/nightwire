@@ -63,6 +63,8 @@ contract NightwireEngine {
         uint8 btype;
         uint8 brain; // packed state bits
         uint256 damage; // total damage dealt this run (the raid contribution)
+        uint256 customBrain; // Boss Forge: an Armory circuit used as every boss's brain (0 = built-in brains)
+        uint8 customBits;
     }
 
     struct Result {
@@ -709,9 +711,10 @@ contract NightwireEngine {
         if (sq > 3) sq = 3;
         uint256 r = rage > 3 ? 3 : rage;
         uint8 inp = uint8(bq | (sq << 2) | ((shield > 0 ? 1 : 0) << 4) | (r << 5));
-        uint8 bits = brainStateBits[g.btype];
+        uint8 bits = g.customBrain != 0 ? g.customBits : brainStateBits[g.btype];
         bytes memory state = bits == 0 ? new bytes(0) : abi.encodePacked(g.brain);
-        (bytes memory ns, bytes memory out) = armory.step(brainIds[g.btype], state, abi.encodePacked(inp));
+        uint256 circuit = g.customBrain != 0 ? g.customBrain : brainIds[g.btype];
+        (bytes memory ns, bytes memory out) = armory.step(circuit, state, abi.encodePacked(inp));
         g.brain = ns.length > 0 ? uint8(ns[0]) : 0;
         return uint8(out[0]) & 3;
     }
@@ -864,8 +867,25 @@ contract NightwireEngine {
         return _replay(seed, actions, true);
     }
 
-    function _replay(uint32 seed, bytes calldata actions, bool raid) internal view returns (Result memory res) {
+    /// Boss Forge: every war machine thinks with the given Armory circuit (a player's taped-out design).
+    function replayForge(uint32 seed, bytes calldata actions, uint256 circuitId) public view returns (Result memory) {
+        (uint32 nIn, uint32 nOut, uint32 nState,) = armory.circuitInfo(circuitId);
+        require(nIn == 7 && nOut == 2 && nState <= 8 && circuitId != 0, "brain pins");
+        return _replayWith(seed, actions, false, circuitId, uint8(nState));
+    }
+
+    function _replay(uint32 seed, bytes calldata actions, bool raid) internal view returns (Result memory) {
+        return _replayWith(seed, actions, raid, 0, 0);
+    }
+
+    function _replayWith(uint32 seed, bytes calldata actions, bool raid, uint256 customBrain, uint8 customBits)
+        internal
+        view
+        returns (Result memory res)
+    {
         G memory g = _newRun(seed, raid);
+        g.customBrain = customBrain;
+        g.customBits = customBits;
         uint256 i;
         uint256 idx;
         while (i < actions.length) {

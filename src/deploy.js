@@ -9,5 +9,6 @@ export const DEPLOY = {
   engine: null,
   ladder: null,
   raid: null, // NightwireRaid (World Boss)
+  shop: null, // NightwireShop (cosmetics + war-machine tape-outs, paid in OKB)
   api: 'https://api-production-fbf29f4a.up.railway.app', // Railway service (server/index.mjs)
 };

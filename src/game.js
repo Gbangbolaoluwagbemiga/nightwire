@@ -6,6 +6,8 @@ import * as TS from './tapesend.js';
 import * as API from './api.js';
 import { makeInspector } from './chipview.js';
 import * as F from './forge.js';
+import * as SHOP from './shop.js';
+import { keccak256 } from './keccak.js';
 import { ONCHAIN } from './chips.js';
 
 // ================================================================ layout (logical units, portrait 390 x 860)
@@ -600,6 +602,125 @@ cv.addEventListener('pointerup', () => {
   if (S.sel) sfx.select();
 });
 cv.addEventListener('pointercancel', () => { S.press = null; });
+// ---------------------------------------------------------------- the "+" shop
+let shopTab = 'cos', previewSel = { camo: SHOP.equippedId('camo'), tracer: SHOP.equippedId('tracer') };
+function shopPreview() { // a strip of base and gunfire, painted with the selected (or previewed) cosmetics
+  const c = $('shopPreview'), r = c.getBoundingClientRect();
+  if (!r.width) return;
+  c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+  const g = c.getContext('2d'), w = c.width, h = c.height, u = w / 360;
+  const cam = (SHOP.ITEMS.find((i) => i.id === previewSel.camo) || {}).colors || SHOP.DEFAULT.camo;
+  const tr = (SHOP.ITEMS.find((i) => i.id === previewSel.tracer) || {}).color || SHOP.DEFAULT.tracer;
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = tr; g.lineWidth = 2.4 * u; g.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 9; k++) { const x = w * (0.15 + 0.08 * k), y = h * (0.62 - 0.05 * k); g.beginPath(); g.moveTo(x, y); g.lineTo(x + 26 * u, y - 18 * u); g.stroke(); }
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = cam[2]; g.fillRect(0, h * 0.72, w, h * 0.28);
+  for (let x = 8 * u, j = 0; x < w; x += 17 * u, j++) { g.fillStyle = j % 2 ? cam[0] : cam[1]; g.beginPath(); g.ellipse(x, h * 0.72, 9 * u, 5 * u, 0, 0, Math.PI * 2); g.fill(); }
+}
+function renderShopGrid() {
+  const live = C.shopEnabled();
+  $('shopGrid').innerHTML = SHOP.ITEMS.map((it) => {
+    const own = SHOP.isOwned(it.id), eq = SHOP.equippedId(it.slot) === it.id;
+    const sw = it.colors ? `linear-gradient(90deg, ${it.colors.join(', ')})` : it.color;
+    const btn = own ? `<button data-a="equip" data-id="${it.id}" class="${eq ? 'on' : ''}">${eq ? 'Equipped' : 'Equip'}</button>`
+      : live ? `<button data-a="buy" data-id="${it.id}" class="buy">Buy · <span data-price="${it.id}">…</span></button>`
+        : `<button data-a="preview" data-id="${it.id}">${previewSel[it.slot] === it.id ? 'Previewing' : 'Preview'}</button>`;
+    return `<div class="shop-item ${eq ? 'eq' : ''}"><div class="sw" style="background:${sw}"></div><b>${it.name}</b><small>${it.note}</small>${btn}</div>`;
+  }).join('');
+  if (live) SHOP.ITEMS.forEach(async (it) => { const el = document.querySelector(`[data-price="${it.id}"]`); if (el) { try { el.textContent = `${C.okb(await C.itemPrice(it.id))} OKB`; } catch { el.textContent = 'OKB'; } } });
+  $('shopGrid').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => shopAction(b.dataset.a, Number(b.dataset.id))));
+  shopPreview();
+}
+async function shopAction(a, id) {
+  const it = SHOP.ITEMS.find((i) => i.id === id), st = $('shopSt');
+  sfx.select();
+  if (a === 'preview') { previewSel[it.slot] = previewSel[it.slot] === id ? 0 : id; st.textContent = C.shopEnabled() ? '' : 'Previews only for now: the depot opens when Nightwire launches on X Layer.'; renderShopGrid(); return; }
+  if (a === 'equip') { const on = SHOP.equippedId(it.slot) === id; SHOP.equip(it.slot, on ? 0 : id); previewSel[it.slot] = on ? 0 : id; renderShopGrid(); return; }
+  try {
+    st.textContent = 'Confirm in your wallet…';
+    const { hash } = await C.buyItem(id);
+    st.innerHTML = `Paying on X Layer… <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>`;
+    if (!(await C.waitFor(hash))) { st.innerHTML = '<span class="bad">✗</span> The payment failed.'; return; }
+    SHOP.addOwned(id); SHOP.equip(it.slot, id); previewSel[it.slot] = id;
+    st.innerHTML = `<span class="ok">✓ ${it.name} is yours</span>, recorded on X Layer. <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">receipt</a>`;
+    sfx.upgrade();
+    renderShopGrid();
+  } catch (e) { st.innerHTML = `<span class="bad">✗</span> ${String(e.message || e).slice(0, 120)}`; }
+}
+async function renderMachineTab(keepStatus = false) {
+  const chip = F.compile(forgeDesign);
+  const live = C.shopEnabled();
+  let price = '';
+  if (live) { try { price = ` for ${C.okb(await C.machinePrice())} OKB`; } catch { /* shown without */ } }
+  $('machInfo').innerHTML = `Your design: <b style="color:${F.COLORS[forgeDesign.color]}">${forgeDesign.name}</b> · ${F.HULLS[forgeDesign.hull]} · <b>${chip.nand} NAND + ${chip.latch} LATCH</b>. Edit it in the Boss Forge.`;
+  $('machBuy').textContent = `Tape out my war machine${price}`;
+  $('machBuy').disabled = !live;
+  if (!keepStatus) $('machSt').textContent = live ? '' : 'Opens when Nightwire launches on X Layer. Design and test your machine in the Boss Forge meanwhile.';
+  const acct = live ? await C.currentAccount() : null;
+  if (acct) {
+    try {
+      const ids = await C.machinesOf(acct);
+      $('machList').innerHTML = ids.length ? ids.map((id) => `<li><span class="rk">#${id}</span><span class="rm" style="text-align:left">Your circuit on the Nightwire Armory<br><a href="${C.processorUrl(DEPLOY_ARMORY(), id)}" target="_blank" rel="noopener">view on X Layer</a></span></li>`).join('') : '';
+    } catch { /* ignore */ }
+  }
+}
+const DEPLOY_ARMORY = () => (ONCHAIN && ONCHAIN.processor) || '';
+async function buyMachine() {
+  const st = $('machSt');
+  try {
+    const chip = F.compile(forgeDesign);
+    const bytes = Uint8Array.from(chip.netlist.slice(2).match(/../g).map((x) => parseInt(x, 16)));
+    const hash = `0x${Array.from(keccak256(bytes), (x) => x.toString(16).padStart(2, '0')).join('')}`;
+    st.textContent = 'Confirm in your wallet…';
+    const { hash: tx } = await C.tapeOutMachine(chip.netlist, hash);
+    st.innerHTML = `Taping out on X Layer… <a href="${C.txUrl(tx)}" target="_blank" rel="noopener">view tx</a>`;
+    if (!(await C.waitFor(tx))) { st.innerHTML = '<span class="bad">✗</span> The tape-out failed.'; return; }
+    st.innerHTML = `<span class="ok">✓ ${forgeDesign.name} is a real circuit now</span>, and the NFT is in your wallet. <a href="${C.txUrl(tx)}" target="_blank" rel="noopener">receipt</a>`;
+    sfx.bossDown();
+    renderMachineTab(true);
+  } catch (e) { st.innerHTML = `<span class="bad">✗</span> ${String(e.message || e).slice(0, 120)}`; }
+}
+async function renderRaidTab() {
+  const live = C.raidEnabled(), week = E.weekNumber(E.dayNumber());
+  document.querySelectorAll('.raidamts button').forEach((b) => { b.disabled = !live; });
+  if (!live) { $('raidPool').textContent = 'Opens when Nightwire launches on X Layer.'; return; }
+  try { $('raidPool').innerHTML = `This week's prize pool: <b>${C.okb(await C.raidPrizePool(week))} OKB</b>`; } catch { $('raidPool').textContent = 'Could not read the prize pool.'; }
+}
+async function fundRaid(units) {
+  const st = $('raidSt'), week = E.weekNumber(E.dayNumber());
+  try {
+    st.textContent = 'Confirm in your wallet…';
+    const { hash } = await C.fundRaid(week, BigInt(units) * 10n ** 15n);
+    if (!(await C.waitFor(hash))) { st.innerHTML = '<span class="bad">✗</span> The payment failed.'; return; }
+    st.innerHTML = `<span class="ok">✓ Added to the OMEGA prize pool.</span> <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">receipt</a>`;
+    sfx.upgrade();
+    renderRaidTab();
+  } catch (e) { st.innerHTML = `<span class="bad">✗</span> ${String(e.message || e).slice(0, 120)}`; }
+}
+function showShopTab(t) {
+  shopTab = t;
+  document.querySelectorAll('#shopTabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  $('paneCos').classList.toggle('on', t === 'cos');
+  $('paneMach').classList.toggle('on', t === 'mach');
+  $('paneRaid').classList.toggle('on', t === 'raid');
+  if (t === 'cos') renderShopGrid(); else if (t === 'mach') renderMachineTab(); else renderRaidTab();
+}
+async function openShop() {
+  previewSel = { camo: SHOP.equippedId('camo'), tracer: SHOP.equippedId('tracer') };
+  $('shopSt').textContent = '';
+  openSheet('shop');
+  requestAnimationFrame(() => showShopTab(shopTab));
+  if (C.shopEnabled()) { // what this wallet owns, read from the chain
+    const acct = await C.currentAccount();
+    if (acct) { try { SHOP.setOwned(await C.ownedItems(acct, SHOP.ITEMS.map((i) => i.id))); renderShopGrid(); } catch { /* keep the cache */ } }
+  }
+}
+$('shopBtn').addEventListener('click', () => { unlockAudio(); sfx.select(); openShop(); });
+document.querySelectorAll('#shopTabs button').forEach((b) => b.addEventListener('click', () => { sfx.select(); showShopTab(b.dataset.t); }));
+$('machBuy').addEventListener('click', () => { unlockAudio(); buyMachine(); });
+document.querySelectorAll('.raidamts button').forEach((b) => b.addEventListener('click', () => { unlockAudio(); fundRaid(Number(b.dataset.v)); }));
+
 // ---------------------------------------------------------------- How to play
 const HW_CARDS = 7;
 let hwChip = null;
@@ -994,7 +1115,7 @@ function fireWeapon(e) {
     const t0 = -v.delay / v.d, vd = v.d / 1000;
     if (w === 0) { // machine gun tracers
       const tx = hx + (Math.random() - 0.5) * 30, ty = hy + (Math.random() - 0.5) * 20;
-      S.proj.push({ kind: 'tracer', sx: mx, sy: my, cx: (mx + tx) / 2, cy: (my + ty) / 2, tx, ty, t: t0, d: vd, color: '#FFE08A' });
+      S.proj.push({ kind: 'tracer', sx: mx, sy: my, cx: (mx + tx) / 2, cy: (my + ty) / 2, tx, ty, t: t0, d: vd, color: SHOP.tracer() });
     } else if (w === 1) { // mortar / howitzer shells, MLRS rockets
       const n = vol.length;
       S.proj.push({ kind: tier === 2 ? 'rocket' : 'shell', sx: mx, sy: my, cx: (mx + hx) / 2 + (j - (n - 1) / 2) * 30, cy: Math.min(my, hy) - (tier === 0 ? 130 : 90), tx: hx + (j - (n - 1) / 2) * 16, ty: hy, t: t0, d: vd, color: GEMS[1].color, splash: true });
@@ -1845,7 +1966,7 @@ function drawProjectiles() {
     if (p.kind === 'tracer') {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = '#FFE08A';
+      ctx.strokeStyle = SHOP.tracer();
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(p.x - Math.cos(ang) * 14, p.y - Math.sin(ang) * 14);
@@ -2221,12 +2342,13 @@ function drawBase() {
     ctx.restore();
   }
   // bunker + sandbags
-  ctx.fillStyle = '#2b2f26';
+  const camo = SHOP.camo();
+  ctx.fillStyle = camo[2];
   ctx.fillRect(10, BASE_Y - 4, W - 20, 24);
   ctx.fillStyle = 'rgba(255,255,255,0.05)';
   ctx.fillRect(10, BASE_Y - 4, W - 20, 2);
   for (let x = 16, j = 0; x < W - 12; x += 17, j++) {
-    ctx.fillStyle = j % 2 ? '#a08a5c' : '#8f7a4f';
+    ctx.fillStyle = j % 2 ? camo[0] : camo[1];
     ctx.beginPath(); ctx.ellipse(x, BASE_Y - 6, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
   }
   TURRETS.forEach((tu, w) => {

@@ -9,6 +9,7 @@ export const NET = {
   ladder: params.get('ladder') || DEPLOY.ladder,
   engine: params.get('engine') || DEPLOY.engine,
   raid: params.get('raid') || DEPLOY.raid,
+  shop: params.get('shop') || DEPLOY.shop,
   explorer: DEPLOY.explorer,
 };
 export const enabled = () => !!NET.ladder;
@@ -128,3 +129,35 @@ export const txUrl = (h) => `${NET.explorer}/tx/${h}`;
 export { addrWord };
 export const raidEnabled = () => !!NET.raid;
 export const submitRaidRun = (week, actionsHex) => sendTx(NET.raid, encode(SEL.raidSubmit, [word(week)], actionsHex));
+
+// ---------------------------------------------------------------- shop (NightwireShop)
+const SHOP = { buy: 'd96a094a', price: '26a49e37', machinePrice: 'ce001c41', ownedOf: '0eccaeef', tapeOut: '1216815f', machinesOf: '084d629f' };
+const RAIDSEL = { fundPool: 'da3a5f72', prizePool: 'd636e6fa' };
+export const shopEnabled = () => !!NET.shop;
+/** the connected account, without opening a wallet prompt */
+export async function currentAccount() {
+  if (account) return account;
+  const w = wallet();
+  if (!w) return null;
+  try { const a = await w.request({ method: 'eth_accounts' }); account = a[0] || null; } catch { /* ignore */ }
+  return account;
+}
+export async function itemPrice(id) { return BigInt(await call(NET.shop, `0x${SHOP.price}${word(id)}`)); }
+export async function machinePrice() { return BigInt(await call(NET.shop, `0x${SHOP.machinePrice}`)); }
+export async function ownedItems(who, ids) {
+  const data = `0x${SHOP.ownedOf}${who.toLowerCase().replace('0x', '').padStart(64, '0')}${word(64)}${word(ids.length)}${ids.map((i) => word(i)).join('')}`;
+  const w = words(await call(NET.shop, data));
+  return ids.filter((_, i) => BigInt(`0x${w[2 + i]}`) === 1n);
+}
+export async function machinesOf(who) {
+  const w = words(await call(NET.shop, `0x${SHOP.machinesOf}${who.toLowerCase().replace('0x', '').padStart(64, '0')}`));
+  return w.slice(2, 2 + Number(BigInt(`0x${w[1]}`))).map((x) => Number(BigInt(`0x${x}`)));
+}
+export async function buyItem(id) { return sendTx(NET.shop, `0x${SHOP.buy}${word(id)}`, await itemPrice(id)); }
+export async function tapeOutMachine(netlistHex, designHashHex) {
+  return sendTx(NET.shop, encode(SHOP.tapeOut, [], netlistHex, [designHashHex.replace('0x', '')]), await machinePrice());
+}
+export async function raidPrizePool(week) { return BigInt(await call(NET.raid, `0x${RAIDSEL.prizePool}${word(week)}`)); }
+export async function fundRaid(week, wei) { return sendTx(NET.raid, `0x${RAIDSEL.fundPool}${word(week)}`, wei); }
+export const okb = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumFractionDigits: 4 });
+export const processorUrl = (addr, id) => `${NET.explorer}/token/${addr}?a=${id}`;

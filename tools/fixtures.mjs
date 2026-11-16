@@ -3,6 +3,7 @@
 import fs from 'fs';
 import * as E from '../src/engine.js';
 import { makeRival } from '../src/rival.js';
+import * as F from '../src/forge.js';
 globalThis.performance ??= { now: () => Date.now() };
 const count = Number(process.argv[2] || 60);
 const games = [];
@@ -57,5 +58,23 @@ for (let i = 0; i < 24; i++) {
   if (!chk.ok || chk.st.damage !== R.st.damage) throw new Error(`JS raid replay mismatch ${i}`);
   raid.push({ seed, actions: E.encodeBinary(R.log), damage: R.st.damage, score: R.st.score, over: R.st.over });
 }
-fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games, day: DAY, daily, week: WEEK, raidCount: raid.length, raid }));
+// Boss Forge designs: compiled netlists and AI fights against them
+const designs = [
+  { name: 'GRINDER', hull: 6, color: 9, rhythm: [0, 1, 2, 1], repairBelow: 50, emp: 1, focusWeakBase: true, focusEnraged: false },
+  { name: 'PUSHOVER', hull: 0, color: 0, rhythm: [0, 0, 0, 0], repairBelow: 0, emp: 0, focusWeakBase: false, focusEnraged: false },
+  { name: 'STORMFRONT', hull: 1, color: 5, rhythm: [2, 1, 1, 0], repairBelow: 75, emp: 2, focusWeakBase: false, focusEnraged: true },
+];
+const forge = [];
+designs.forEach((d, di) => {
+  const chip = F.compile(d);
+  for (let k = 0; k < 4; k++) {
+    const seed = (E.forgeSeed(d) + k) >>> 0;
+    const R = makeRival(seed, ['normal', 'hard', 'easy', 'normal'][k], null, { forge: d });
+    while (!R.finished) { if (R.phase === 'night') { R.night.t = R.night.end; R.update(0); } else { R.timer = 0; R.update(0); } }
+    const chk = E.replay(seed, R.log, { forge: d });
+    if (!chk.ok || chk.st.score !== R.st.score) throw new Error('JS forge replay mismatch');
+    forge.push({ design: di, netlist: chip.netlist, seed, actions: E.encodeBinary(R.log), score: R.st.score, stage: R.st.stageNo });
+  }
+});
+fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games, day: DAY, daily, week: WEEK, raidCount: raid.length, raid, forgeCount: forge.length, forge }));
 console.log(`wrote ${games.length} games; actions ${Math.min(...games.map((g) => g.n))}..${Math.max(...games.map((g) => g.n))}; bytes up to ${Math.max(...games.map((g) => (g.actions.length - 2) / 2))}`);
