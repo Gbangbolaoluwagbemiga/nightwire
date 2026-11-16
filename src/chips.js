@@ -74,4 +74,4 @@ export const CHIPS = {
     "latch": 2
   }
 };
-export const ONCHAIN = { chainId: 196, processor: null, ids: {} };
+export const ONCHAIN = { chainId: 196, processor: null, first: null };

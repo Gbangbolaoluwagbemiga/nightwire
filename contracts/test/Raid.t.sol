@@ -7,6 +7,11 @@ import {NightwireRaid} from "../src/NightwireRaid.sol";
 import {ICircuits} from "../src/ITapeOut.sol";
 
 contract RaidTest is Test {
+    function _ids() internal view returns (uint256[9] memory ids) {
+        uint256 f = vm.envOr("BRAIN_FIRST_ID", uint256(1));
+        for (uint256 i; i < 9; i++) ids[i] = f + i;
+    }
+
     NightwireEngine eng;
     NightwireRaid raid;
     string j;
@@ -15,7 +20,7 @@ contract RaidTest is Test {
     function setUp() public {
         vm.createSelectFork(vm.envOr("FORK_URL", string("http://127.0.0.1:8547")));
         address armory = vm.envOr("ARMORY", address(0x804F00c9FDecBF32C38a73D6b304617D292DcE0f));
-        eng = new NightwireEngine(ICircuits(armory), [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9]);
+        eng = new NightwireEngine(ICircuits(armory), _ids());
         j = vm.readFile(string.concat(vm.projectRoot(), "/test/fixtures.json"));
         wk = vm.parseJsonUint(j, ".week");
         raid = new NightwireRaid(eng, 15_000); // a small pool so the test can bring OMEGA down

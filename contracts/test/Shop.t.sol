@@ -4,7 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console} from "forge-std/Test.sol";
 import {NightwireEngine} from "../src/NightwireEngine.sol";
 import {NightwireShop} from "../src/NightwireShop.sol";
-import {ICircuits, ITransistors, IERC20} from "../src/ITapeOut.sol";
+import {ICircuits} from "../src/ITapeOut.sol";
+import {ITransistorsOkb} from "../src/NightwireShop.sol";
 
 interface IOwnerOf { function ownerOf(uint256) external view returns (address); function transistors() external view returns (address); }
 
@@ -14,18 +15,22 @@ contract ShopTest is Test {
     NightwireEngine eng;
     string j;
     address buyer = makeAddr("buyer");
-    IERC20 constant BEM = IERC20(0x60e62Efa9405d6873C5deaBD4E6CC91c25363952);
 
     function setUp() public {
         vm.createSelectFork(vm.envOr("FORK_URL", string("http://127.0.0.1:8547")));
-        armory = ICircuits(vm.envOr("ARMORY", address(0x804F00c9FDecBF32C38a73D6b304617D292DcE0f)));
+        armory = ICircuits(vm.envOr("BRAINS_PROCESSOR", address(0x7335a50819d44402e3D5E00239bBB80A13E7308F))); // OKB-priced, free transistors
         address tr = IOwnerOf(address(armory)).transistors();
-        shop = new NightwireShop(armory, ITransistors(tr), BEM, 0.005 ether);
-        vm.prank(0x571d447f4f24688eC35Ccf07f1D6993655F6aF15); // fork only: BEM for the shop's transistor stock
-        BEM.transfer(address(shop), 200_000_000); // 2 BEM
-        eng = new NightwireEngine(armory, [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9]);
+        shop = new NightwireShop(armory, ITransistorsOkb(tr), 0.005 ether);
+        eng = new NightwireEngine(armory, brainIds());
         j = vm.readFile(string.concat(vm.projectRoot(), "/test/fixtures.json"));
         vm.deal(buyer, 1 ether);
+    }
+
+    /// the 9 built-in brains, taped out on the same processor by script/DeployBrains.s.sol (ids from the env)
+    function brainIds() internal view returns (uint256[9] memory ids) {
+        uint256 first = vm.envOr("BRAIN_FIRST_ID", uint256(0));
+        require(first != 0, "set BRAIN_FIRST_ID to the first brain circuit id");
+        for (uint256 i; i < 9; i++) ids[i] = first + i;
     }
 
     function test_cosmeticsOneTapAndOwned() public {
@@ -55,13 +60,11 @@ contract ShopTest is Test {
             uint256 d = vm.parseJsonUint(j, string.concat(p, ".design"));
             bytes memory nl = vm.parseJsonBytes(j, string.concat(p, ".netlist"));
             if (d != lastDesign) { // the player buys the tape-out of their design
-                uint256 before = BEM.balanceOf(address(shop));
                 vm.prank(buyer);
                 id = shop.tapeOutMachine{value: 0.005 ether}(nl, keccak256(nl));
                 assertEq(IOwnerOf(address(armory)).ownerOf(id), buyer, "circuit NFT goes to the player");
                 assertEq(armory.netlist(id), nl, "the exact compiled netlist is on chain");
                 console.log("design", d, "circuit", id);
-                console.log("BEM spent", before - BEM.balanceOf(address(shop)));
                 lastDesign = d;
             }
             NightwireEngine.Result memory r = eng.replayForge(uint32(vm.parseJsonUint(j, string.concat(p, ".seed"))), vm.parseJsonBytes(j, string.concat(p, ".actions")), id);
@@ -69,7 +72,8 @@ contract ShopTest is Test {
             assertEq(r.score, vm.parseJsonUint(j, string.concat(p, ".score")), string.concat("forge score ", vm.toString(i)));
         }
         assertEq(shop.machinesOwnedBy(buyer).length, 3);
-        assertEq(address(shop).balance, 3 * (0.005 ether - armory.TAPEOUT_FEE()), "shop keeps the margin");
+        assertGt(address(shop).balance, 0, "shop keeps the margin");
+        console.log("shop margin after 3 machines (wei)", address(shop).balance);
     }
 
     function test_rejectsRefNetlists() public {

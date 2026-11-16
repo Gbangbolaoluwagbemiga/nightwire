@@ -1420,7 +1420,7 @@ const inspector = makeInspector($('chipSheet'), {
     }
     const b = type === 8 ? { name: 'OMEGA' } : E.BOSSES[type], ch = E.brainOf(type).chip;
     $('chName').textContent = `${b.name} brain`;
-    const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${type + 1} on the Nightwire Armory, X Layer.` : 'Taped out on the Nightwire Armory processor at launch.';
+    const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${ONCHAIN.first + type} on TapeOut processor ${ONCHAIN.processor.slice(0, 8)}…, X Layer.` : 'Taped out on X Layer at launch.';
     $('chInfo').textContent = `${c.nand} NAND + ${c.latch} LATCH · ${(ch.netlist.length - 2) / 2}-byte netlist. ${PERSONA[type]} ${where}`;
     document.querySelectorAll('#chSeg button').forEach((x) => x.classList.toggle('on', Number(x.dataset.t) === type));
   },

@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ICircuits, ITransistors, IERC20} from "./ITapeOut.sol";
+import {ICircuits} from "./ITapeOut.sol";
+
+interface ITransistorsOkb {
+    function mint(uint256 id, uint256 amount) external payable; // paid in OKB on the processors we use
+    function mintPrice() external view returns (uint256);
+    function protocolFee() external view returns (uint256);
+}
 
 interface IERC721Transfer {
     function transferFrom(address from, address to, uint256 id) external;
@@ -11,13 +17,12 @@ interface IERC721Transfer {
 /// @notice - Cosmetics (base camouflage, tracer colours): pay once, own forever, recorded on chain.
 ///         - "Tape out my war machine": the player's Boss Forge design (a NAND/LATCH netlist compiled in the game)
 ///           is taped out as a real circuit on the Nightwire Armory, and the circuit NFT goes to the player.
-///           The shop pays the transistors (in BEM, from its own stock) and TapeOut's fee (in OKB) out of the price.
+///           The shop pays the transistors and TapeOut's fee (all in OKB) out of the price.
 ///         Nothing sold here touches gameplay or leaderboards: every score is still replayed move by move.
 contract NightwireShop {
     address public owner;
     ICircuits public immutable armory;
-    ITransistors public immutable transistors;
-    IERC20 public immutable bem;
+    ITransistorsOkb public immutable transistors;
     uint256 public machinePrice; // OKB, for one tape-out
     uint256 public constant MAX_MACHINE_GATES = 160;
 
@@ -33,12 +38,18 @@ contract NightwireShop {
     error AlreadyOwned();
     error BadNetlist();
 
-    constructor(ICircuits armory_, ITransistors transistors_, IERC20 bem_, uint256 machinePrice_) {
+    constructor(ICircuits armory_, ITransistorsOkb transistors_, uint256 machinePrice_) {
         owner = msg.sender;
         armory = armory_;
         transistors = transistors_;
-        bem = bem_;
         machinePrice = machinePrice_;
+    }
+
+    /// what one tape-out of a netlist costs the shop right now (transistors + fees), in OKB
+    function costOf(uint256 nNand, uint256 nLatch) public view returns (uint256) {
+        uint256 unit = transistors.mintPrice();
+        uint256 pf = transistors.protocolFee();
+        return unit * (nNand + nLatch) + (nNand > 0 ? pf : 0) + (nLatch > 0 ? pf : 0) + armory.TAPEOUT_FEE();
     }
 
     // ------------------------------------------------------------------ cosmetics
@@ -64,9 +75,9 @@ contract NightwireShop {
         if (nNand + nLatch == 0 || nNand + nLatch > MAX_MACHINE_GATES) revert BadNetlist();
         uint256 unit = transistors.mintPrice();
         uint256 pf = transistors.protocolFee();
-        bem.approve(address(transistors), unit * (nNand + nLatch) + 2 * pf);
-        if (nNand > 0) transistors.mint(0, nNand);
-        if (nLatch > 0) transistors.mint(1, nLatch);
+        require(msg.value >= costOf(nNand, nLatch), "price below cost");
+        if (nNand > 0) transistors.mint{value: unit * nNand + pf}(0, nNand);
+        if (nLatch > 0) transistors.mint{value: unit * nLatch + pf}(1, nLatch);
         id = armory.tapeout{value: armory.TAPEOUT_FEE()}(netlist, 7, 2);
         IERC721Transfer(address(armory)).transferFrom(address(this), msg.sender, id);
         machinesOf[msg.sender].push(id);
@@ -105,11 +116,6 @@ contract NightwireShop {
         require(msg.sender == owner, "owner");
         (bool ok,) = to.call{value: address(this).balance}("");
         require(ok, "pay");
-    }
-
-    function withdrawBem(address to, uint256 amount) external {
-        require(msg.sender == owner, "owner");
-        bem.transfer(to, amount);
     }
 
     // the shop briefly holds transistors (ERC-1155) and the circuit NFT (ERC-721) while taping out
