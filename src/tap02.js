@@ -91,3 +91,13 @@ export function builder(nIn) {
   };
   return B;
 }
+
+// Every signal's value for one beat (for drawing a circuit with its live values).
+export function signals(c, state, inputs) {
+  const s = new Uint8Array(c.S);
+  s[1] = 1;
+  for (let i = 0; i < c.nIn; i++) s[2 + i] = inputs[i] ? 1 : 0;
+  const base = 2 + c.nIn;
+  for (let i = 0; i < c.op.length; i++) s[base + i] = c.op[i] === 0 ? 1 - (s[c.a[i]] & s[c.b[i]]) : state[c.stateIdx[i]] ? 1 : 0;
+  return s;
+}

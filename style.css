@@ -274,3 +274,29 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 .chainst .ok { color: var(--green); font-weight: 800; }
 .chainst .bad { color: var(--red); font-weight: 800; }
 .ranklist .sec { justify-content: space-between; background: none; border: 0; padding: calc(var(--u) * 6) calc(var(--u) * 4) 0; font-family: "JetBrains Mono", monospace; font-size: calc(var(--u) * 11); letter-spacing: .1em; color: var(--muted); }
+
+/* Sheet (duel / inbox) */
+#sheetBg { position: absolute; inset: 0; background: rgba(2,4,8,.6); opacity: 0; pointer-events: none; transition: opacity .3s; }
+#sheetBg.show { opacity: 1; pointer-events: auto; }
+#sheet2 { position: absolute; left: 0; right: 0; bottom: 0; max-height: 86%; overflow-y: auto; padding: calc(var(--u) * 10) calc(var(--u) * 20) calc(var(--u) * 26);
+  background: linear-gradient(180deg, rgba(16, 22, 34, .98), rgba(8, 12, 20, .99)); border-top: 1px solid var(--line); border-radius: calc(var(--u) * 24) calc(var(--u) * 24) 0 0;
+  transform: translateY(105%); transition: transform .38s cubic-bezier(.2,.9,.2,1); }
+#sheet2.show { transform: none; }
+#sheet2 > div:not(.grab) { display: none; }
+#sheet2.duel #duelSheet, #sheet2.inbox #inboxSheet { display: block; }
+.sh-title { font-family: "JetBrains Mono", monospace; font-weight: 800; font-size: calc(var(--u) * 20); letter-spacing: .04em; }
+.sh-sub { margin: calc(var(--u) * 6) 0 calc(var(--u) * 14); font-size: calc(var(--u) * 13.5); color: var(--muted); line-height: 1.4; }
+#sheet2 .cta { width: 100%; height: calc(var(--u) * 50); flex: none; }
+.sh-or { margin: calc(var(--u) * 16) 0 calc(var(--u) * 10); text-align: center; font-size: calc(var(--u) * 12); color: var(--muted); }
+.fld { display: block; margin-bottom: calc(var(--u) * 10); }
+.fld span { display: block; margin-bottom: calc(var(--u) * 4); font-size: calc(var(--u) * 12); color: var(--muted); }
+.fld input { width: 100%; height: calc(var(--u) * 44); padding: 0 calc(var(--u) * 12); border-radius: calc(var(--u) * 12); border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--text); font-family: "JetBrains Mono", monospace; font-size: calc(var(--u) * 16); }
+#ibList { min-height: 0; margin-top: calc(var(--u) * 12); }
+#ibList li { flex-wrap: wrap; }
+#ibList .msg { flex: 1 1 100%; font-size: calc(var(--u) * 12.5); color: #c9d4e3; line-height: 1.4; }
+#ibList .play { margin-left: auto; padding: calc(var(--u) * 6) calc(var(--u) * 14); border-radius: 99px; background: var(--green); color: #06110c; font-weight: 700; }
+
+#sheet2.chip #chipSheet { display: block; }
+#stage #chipCv { position: static; display: block; width: 100%; height: auto; aspect-ratio: 350 / 300; margin: calc(var(--u) * 10) 0; border-radius: calc(var(--u) * 14); background: rgba(0,0,0,.35); border: 1px solid var(--line); touch-action: manipulation; }
+.chseg button { font-size: calc(var(--u) * 11); font-family: "JetBrains Mono", monospace; }
+#chNote { margin-top: calc(var(--u) * 10); font-size: calc(var(--u) * 12); }

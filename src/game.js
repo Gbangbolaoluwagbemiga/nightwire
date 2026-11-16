@@ -2,6 +2,9 @@ import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 import * as E from './engine.js';
 import { makeRival, LEVELS } from './rival.js';
 import * as C from './chain.js';
+import * as TS from './tapesend.js';
+import { makeInspector } from './chipview.js';
+import { ONCHAIN } from './chips.js';
 
 // ================================================================ layout (logical units, portrait 390 x 860)
 const W = 390, H = 860;
@@ -547,6 +550,12 @@ function cellAt(p) {
 }
 cv.addEventListener('pointerdown', (e) => {
   unlockAudio();
+  const pb = pt(e);
+  if (pb.y < 104 && S.boss && (S.phase === 'day' || S.phase === 'night')) { // the boss bar: inspect its brain chip
+    const b = S.boss, live = S.phase === 'night' && NIGHT && S.chip ? S.chip.state : b.brain;
+    openChips(b.type, { state: live, inputs: E.brainInputs(b.hp, b.max, S.base, S.baseMax, S.shield, b.rage) });
+    return;
+  }
   if (S.phase !== 'day' || S.bstate !== 'idle') return;
   const p = pt(e), cell = cellAt(p);
   if (!cell) { S.sel = null; return; }
@@ -605,7 +614,13 @@ function modeFromPick() {
 $('playBtn').addEventListener('click', () => { unlockAudio(); newGame(modeFromPick()); });
 $('againBtn').addEventListener('click', () => { unlockAudio(); newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
 $('menuBtn').addEventListener('click', () => { ui.over.classList.remove('show'); ui.title.classList.add('show'); RIVAL = null; rv.box.classList.remove('show'); S.phase = 'title'; syncPick(); });
-$('duelBtn').addEventListener('click', () => { unlockAudio(); shareDuel(); });
+$('duelBtn').addEventListener('click', () => { unlockAudio(); openSheet('duel'); });
+$('shareLinkBtn').addEventListener('click', () => { closeSheet(); shareDuel(); });
+$('sheetBg').addEventListener('click', closeSheet);
+$('inboxBtn').addEventListener('click', () => { sfx.select(); openSheet('inbox'); });
+$('tsSendBtn').addEventListener('click', () => { unlockAudio(); sendTapeSend(); });
+$('ibLoadBtn').addEventListener('click', () => { unlockAudio(); loadInbox(); });
+$('inboxLink').hidden = !C.hasWallet() && !new URLSearchParams(location.search).has('rpc');
 $('chainBtn').addEventListener('click', () => { unlockAudio(); submitToChain(); });
 document.querySelector('#rankSeg button[data-m=chain]').hidden = !C.enabled();
 $('ranksBtn').addEventListener('click', () => { sfx.select(); showRanks(pick.kind === 'duel' ? 'solo' : pick.kind); });
@@ -949,6 +964,86 @@ function gameOver() {
     }
     ui.over.classList.add('show');
   }, 1300);
+}
+
+// ---------------------------------------------------------------- TapeSend (challenges between TapeOut containers)
+let myCircuit = '';
+try { myCircuit = localStorage.getItem('nw-circuit') || ''; } catch { /* ignore */ }
+function openSheet(kind) {
+  $('sheet2').className = `show ${kind}`;
+  $('sheetBg').classList.add('show');
+  $('tsFrom').value = myCircuit;
+  $('ibName').value = myCircuit;
+}
+function closeSheet() { $('sheet2').className = ''; $('sheetBg').classList.remove('show'); paused = false; }
+
+// ---------------------------------------------------------------- chip inspector
+const PERSONA = [
+  'Relentless: every third shot is focus fire. Two LATCHes count its shots.',
+  'Hunter: knocks out a raised shield with an EMP, then follows up with focus fire. One LATCH remembers the EMP.',
+  'Fortress: repairs itself once when below half health, and focus-fires once enraged. One LATCH remembers the repair.',
+  'Swarm: alternates barrage and focus fire, EMPs shields when enraged, keeps one emergency repair. Two LATCHes.',
+];
+const inspector = makeInspector($('chipSheet'), {
+  onTap: () => sfx.select(),
+  onInfo: ({ type, c }) => {
+    const b = E.BOSSES[type], ch = E.brainOf(type).chip;
+    $('chName').textContent = `${b.name} brain`;
+    const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${type + 1} on the Nightwire Armory, X Layer.` : 'Taped out on the Nightwire Armory processor at launch.';
+    $('chInfo').textContent = `${c.nand} NAND + ${c.latch} LATCH · ${(ch.netlist.length - 2) / 2}-byte netlist. ${PERSONA[type]} ${where}`;
+    document.querySelectorAll('#chSeg button').forEach((x) => x.classList.toggle('on', Number(x.dataset.t) === type));
+  },
+});
+function openChips(type, live) {
+  if (S.phase === 'day' || S.phase === 'night') paused = true;
+  openSheet('chip');
+  requestAnimationFrame(() => inspector.open(type, live && live.state, live && live.inputs));
+}
+document.querySelectorAll('#chSeg button').forEach((x) => x.addEventListener('click', () => { sfx.select(); inspector.open(Number(x.dataset.t)); }));
+$('chStep').addEventListener('click', () => { sfx.select(); inspector.step(); });
+$('chReset').addEventListener('click', () => inspector.reset());
+$('chipsBtn').addEventListener('click', () => { unlockAudio(); openChips(0); });
+function rememberCircuit(v) { myCircuit = v.trim(); try { localStorage.setItem('nw-circuit', myCircuit); } catch { /* ignore */ } }
+async function sendTapeSend() {
+  const st = $('tsSt'), btn = $('tsSendBtn');
+  const from = $('tsFrom').value.trim(), to = $('tsTo').value.trim();
+  if (!TS.parseName(from) || !TS.parseName(to)) { st.innerHTML = '<span class="bad">✗</span> Use X Layer TapeOut names like <b>7.2.231</b>.'; return; }
+  rememberCircuit(from);
+  btn.disabled = true;
+  try {
+    st.textContent = 'Checking both circuits on X Layer…';
+    const payload = TS.challengePayload({ score: S.score, stage: S.stageNo, link: duelLink() });
+    const { hash } = await TS.sendChallenge(from, to, payload);
+    st.innerHTML = `Sent. Waiting for X Layer… <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>`;
+    const ok = await C.waitFor(hash);
+    st.innerHTML = ok ? `<span class="ok">✓ Delivered</span> to ${to}'s TapeSend inbox. <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>` : `<span class="bad">✗</span> The transaction failed.`;
+    if (ok) sfx.upgrade();
+  } catch (e) {
+    const m = String(e.message || e);
+    const why = /853f2907|NotCPU/.test(m) ? 'TapeSend does not accept circuits from processors made after TapeOut\'s factory upgrade yet. Try a circuit on an older processor.'
+      : /NotHolder|7623fb52/.test(m) ? 'Your connected wallet does not hold that circuit.'
+        : /NotOpened|6d36408a/.test(m) ? 'That circuit\'s container is not opened yet (open it once in TapeOut).' : m.slice(0, 140);
+    st.innerHTML = `<span class="bad">✗</span> ${why}`;
+  }
+  btn.disabled = false;
+}
+async function loadInbox() {
+  const name = $('ibName').value.trim(), list = $('ibList');
+  if (!TS.parseName(name)) { list.innerHTML = '<li class="empty">Use an X Layer TapeOut name like 7.2.231.</li>'; return; }
+  rememberCircuit(name);
+  list.innerHTML = '<li class="empty">Reading your inbox on X Layer…</li>';
+  try {
+    const msgs = await TS.inbox(name);
+    list.innerHTML = msgs.length ? msgs.map((m, i) => `<li><span class="rm">${C.short(m.from)} · ${new Date(m.at * 1000).toLocaleDateString()}</span><button class="play" data-i="${i}">Play</button><span class="msg">${m.body.replace(/https?:\/\/\S+/, '').replace(/[<>&]/g, '')}</span></li>`).join('')
+      : '<li class="empty">No Nightwire challenges yet.</li>';
+    list.querySelectorAll('.play').forEach((b) => b.addEventListener('click', () => {
+      const hash = msgs[Number(b.dataset.i)].link.split('#')[1];
+      location.hash = hash;
+      location.reload();
+    }));
+  } catch (e) {
+    list.innerHTML = `<li class="empty">Couldn't read the inbox (${String(e.message || e).slice(0, 80)}).</li>`;
+  }
 }
 
 function shareDuel() {
@@ -1776,7 +1871,7 @@ function drawFx(f) {
 }
 
 // ================================================================ loop
-let last = 0, raf = 0, slowFrames = 0, frames = 0;
+let last = 0, raf = 0, slowFrames = 0, frames = 0, paused = false;
 function frame(now) {
   raf = requestAnimationFrame(frame);
   const real = Math.min(0.05, (now - (last || now)) / 1000);
@@ -1787,6 +1882,7 @@ function frame(now) {
     if (slowFrames > 45) { lowPower = true; dpr = 1; MAXP = 200; resize(); }
   }
   if (S.slow < 1 && S.phase !== 'over') S.slow = Math.min(1, S.slow + real * 0.6);
+  if (paused) { render(); return; }
   if (S.phase !== 'title') update(real * S.slow);
   else S.time += real;
   if (RIVAL && (S.phase === 'day' || S.phase === 'night')) { RIVAL.update(real); rivalEvents(); }

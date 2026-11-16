@@ -28,7 +28,7 @@ node -e "
 const fs=require('fs');let s=fs.readFileSync('src/deploy.js','utf8');
 s=s.replace(/armory: [^,]*,/,'armory: \'$ARMORY\',').replace(/engine: [^,]*,/,'engine: \'$ENGINE\',').replace(/ladder: [^,]*,/,'ladder: \'$LADDER\',');
 fs.writeFileSync('src/deploy.js',s);"
-sed -i '' "s/onchain: null/onchain: '$ARMORY'/" src/chips.js 2>/dev/null || true
+sed -i '' "s/processor: null/processor: '$ARMORY'/" src/chips.js
 
 ask "3/3 Publish the game to DeWEB (container 0.08 OKB + ~0.001 OKB gas, name fee currently 0)?"
 node tools/deweb-manifest.mjs
