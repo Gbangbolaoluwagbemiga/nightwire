@@ -11,6 +11,7 @@ import * as F from '../src/forge.js';
 const PORT = Number(process.env.PORT || 8080);
 const DATA = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const FILE = path.join(DATA, 'nightwire.json');
+const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
 const MAX_BODY = 64 * 1024;
 const MODES = new Set(['solo', 'ai', 'daily', 'duel']);
 const LEVELS = new Set(['easy', 'normal', 'hard']);
@@ -286,6 +287,18 @@ const server = http.createServer(async (req, res) => {
       if (!d) return send(res, 404, { error: 'no such duel' });
       const { owner, ...pub } = d;
       return send(res, 200, pub);
+    }
+    // ---- backup mirror of the game itself (the main site is on Vercel)
+    if (req.method === 'GET') {
+      const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
+      if (/^(index\.html|style\.css|src\/[a-z0-9]+\.js)$/.test(rel)) {
+        const file = path.join(ROOT, rel);
+        if (fs.existsSync(file)) {
+          const type = rel.endsWith('.html') ? 'text/html; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8';
+          res.writeHead(200, { 'content-type': type, 'cache-control': 'public, max-age=0, must-revalidate', 'x-content-type-options': 'nosniff' });
+          return res.end(fs.readFileSync(file));
+        }
+      }
     }
     return send(res, 404, { error: 'not found' });
   } catch (e) {
