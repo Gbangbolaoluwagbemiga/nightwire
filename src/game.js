@@ -666,7 +666,7 @@ function startNight() {
   const plan = E.planNight(S);
   NIGHT = { plan, cr: RUN.CR.s, strikes: [], i: 0, endAt: -1, tx: {} };
   NIGHT.script = E.simNight(plan, [], NIGHT.cr);
-  S.shown = S.charge.slice();
+  S.shown = S.charge.map((v) => v / 2);
   S.nt = 0;
   syncHud();
   banner('INCOMING!', `${S.boss.name} · ${S.boss.role}`);
@@ -683,18 +683,32 @@ function nightEntry(e) {
   switch (e.type) {
     case 'heal':
       S.base = e.base;
-      text(195, BASE_Y - 40, `+${e.v} REPAIRED`, '#3DDC97', 15);
+      text(195, BASE_Y - 40, `+${e.v / 10} REPAIRED`, '#3DDC97', 15);
       spark(195, BASE_Y, '#3DDC97', 30, 160, 2.6, 0.7);
       sfx.repair();
       break;
     case 'fire': fireWeapon(e); break;
     case 'hit': hitBoss(e); break;
     case 'kill': bossKilled(); break;
-    case 'bfire': b.charge = 0.45; NIGHT.tx[e.id] = 40 + Math.random() * (W - 80); break;
-    case 'blaunch': launchBossShot(NIGHT.tx[e.id] ?? 195); break;
+    case 'bfire': { // the brain chip just stepped: telegraph its decision
+      b.charge = e.action === 1 ? 0.9 : 0.45;
+      NIGHT.tx[e.id] = 40 + Math.random() * (W - 80);
+      S.chip = { action: e.action, t: S.time, state: e.brain };
+      if (e.action) {
+        text(S.bp.x, S.bp.y - 70 * S.bp.s - 14, E.ACTIONS[e.action], ACTION_COL[e.action], 14, 1.0, 16);
+        if (e.action === 1) sfx.siren();
+      }
+      break;
+    }
+    case 'blaunch':
+      if (e.action === 3) { spark(S.bp.x, S.bp.y, '#3DDC97', 26, 140, 2.6, 0.8); sfx.repair(); }
+      else launchBossShot(NIGHT.tx[e.id] ?? 195, 0, e.action);
+      break;
     case 'bhit':
       S.shield = e.shield;
       S.base = e.base;
+      if (e.action === 3) { b.hp = e.hp; text(S.bp.x, S.bp.y - 20, `+${Math.round(b.max * 0.008)} REPAIRED`, '#3DDC97', 15, 1.1, 30); break; }
+      if (e.action === 2) { S.fx.push({ type: 'shieldHit', t: 0, d: 0.6 }); S.fx.push({ type: 'ring', x: NIGHT.tx[e.id] ?? 195, y: BASE_Y - 20, r: 0, max: 120, t: 0, d: 0.5, color: '#3FC8FF' }); text(195, BASE_Y - 70, e.absorbed > 0 ? 'EMP · SHIELD DOWN' : 'EMP', '#3FC8FF', 14); sfx.shield(); if (e.rest > 0) damageFx(e.rest, NIGHT.tx[e.id] ?? 195); break; }
       shotLandsFx(e.absorbed, e.rest, NIGHT.tx[e.id] ?? 195, e.shield);
       break;
     case 'strike': S.strikes = e.strikes; syncHud(); break;
@@ -714,15 +728,15 @@ function fireWeapon(e) {
   b.look = Math.atan2(tur.y - S.bp.y, tur.x - S.bp.x);
   const vol = E.volley(w, tier, 0);
   vol.forEach((v, j) => {
-    const t0 = -v.delay / v.d;
+    const t0 = -v.delay / v.d, vd = v.d / 1000;
     if (w === 0) { // machine gun tracers
       const tx = hx + (Math.random() - 0.5) * 30, ty = hy + (Math.random() - 0.5) * 20;
-      S.proj.push({ kind: 'tracer', sx: mx, sy: my, cx: (mx + tx) / 2, cy: (my + ty) / 2, tx, ty, t: t0, d: v.d, color: '#FFE08A' });
+      S.proj.push({ kind: 'tracer', sx: mx, sy: my, cx: (mx + tx) / 2, cy: (my + ty) / 2, tx, ty, t: t0, d: vd, color: '#FFE08A' });
     } else if (w === 1) { // mortar / howitzer shells, MLRS rockets
       const n = vol.length;
-      S.proj.push({ kind: tier === 2 ? 'rocket' : 'shell', sx: mx, sy: my, cx: (mx + hx) / 2 + (j - (n - 1) / 2) * 30, cy: Math.min(my, hy) - (tier === 0 ? 130 : 90), tx: hx + (j - (n - 1) / 2) * 16, ty: hy, t: t0, d: v.d, color: GEMS[1].color, splash: true });
+      S.proj.push({ kind: tier === 2 ? 'rocket' : 'shell', sx: mx, sy: my, cx: (mx + hx) / 2 + (j - (n - 1) / 2) * 30, cy: Math.min(my, hy) - (tier === 0 ? 130 : 90), tx: hx + (j - (n - 1) / 2) * 16, ty: hy, t: t0, d: vd, color: GEMS[1].color, splash: true });
     } else { // guided missile salvo
-      S.proj.push({ kind: 'missile', sx: mx, sy: my, cx: tur.x + (Math.random() - 0.5) * 280, cy: tur.y - 60 - Math.random() * 120, tx: hx + (j - vol.length / 2) * 12, ty: hy, t: t0, d: v.d, color: GEMS[2].color });
+      S.proj.push({ kind: 'missile', sx: mx, sy: my, cx: tur.x + (Math.random() - 0.5) * 280, cy: tur.y - 60 - Math.random() * 120, tx: hx + (j - vol.length / 2) * 12, ty: hy, t: t0, d: vd, color: GEMS[2].color });
     }
   });
   if (w === 0) { sfx.mg(); setTimeout(() => sfx.mg(), 70); setTimeout(() => sfx.mg(), 140); }
@@ -733,12 +747,12 @@ function fireWeapon(e) {
 function callAirstrike() {
   const b = S.boss;
   if (S.phase !== 'night' || !NIGHT || S.strikes <= 0 || !b || b.dying >= 0) return;
-  const ts = Math.floor(S.nt * 100) / 100;
+  const ts = Math.floor(S.nt * 1000); // ms
   NIGHT.strikes.push(ts);
   NIGHT.script = E.simNight(NIGHT.plan, NIGHT.strikes, NIGHT.cr);
   const en = NIGHT.script.entries;
   let i = 0;
-  while (i < en.length && en[i].t <= S.nt) i++;
+  while (i < en.length && en[i].t <= ts) i++;
   NIGHT.i = i;
   NIGHT.endAt = -1;
   S.strikes--;
@@ -747,7 +761,7 @@ function callAirstrike() {
   S.fx.push({ type: 'flyover', y: y0, t: 0, d: 1.1 });
   for (let j = 0; j < 3; j++) {
     const dx = (j - 1) * 46, v = E.BOMB(j);
-    S.proj.push({ kind: 'bomb', sx: S.bp.x + dx - 60, sy: y0 + (j - 1) * 6, cx: S.bp.x + dx - 20, cy: y0, tx: S.bp.x + dx * 0.6, ty: S.bp.y + 6, t: -v.delay / v.d, d: v.d, color: '#ffb347', splash: true });
+    S.proj.push({ kind: 'bomb', sx: S.bp.x + dx - 60, sy: y0 + (j - 1) * 6, cx: S.bp.x + dx - 20, cy: y0, tx: S.bp.x + dx * 0.6, ty: S.bp.y + 6, t: -v.delay / v.d, d: v.d / 1000, color: '#ffb347', splash: true });
   }
   sfx.strike();
   buzz(50);
@@ -763,7 +777,7 @@ function hitBoss(e) {
   const color = e.src === 'bomb' ? '#ffb347' : GEMS[e.src].color;
   const x = S.bp.x + (Math.random() - 0.5) * 80 * S.bp.s, y = S.bp.y + (Math.random() - 0.3) * 44 * S.bp.s;
   spark(x, y, color, lowPower ? 4 : big ? 14 : 7, big ? 220 : 160, 2.6, 0.4);
-  if (e.d >= 3 || e.crit) text(x + (Math.random() - 0.5) * 24, y - 10, e.crit ? `CRIT ${Math.ceil(e.d)}` : `${Math.ceil(e.d)}`, e.crit ? '#FFD23F' : '#ffffff', e.crit ? 17 : big ? 15 : 12, 0.8, 44);
+  if (e.d >= 30 || e.crit) text(x + (Math.random() - 0.5) * 24, y - 10, e.crit ? `CRIT ${Math.ceil(e.d / 10)}` : `${Math.ceil(e.d / 10)}`, e.crit ? '#FFD23F' : '#ffffff', e.crit ? 17 : big ? 15 : 12, 0.8, 44);
   sfx.impact();
 }
 function bossKilled() {
@@ -784,11 +798,13 @@ function bossFire(dmg) { // daytime: a boss holding the sky shells the base (the
   const tx = 40 + Math.random() * (W - 80);
   setTimeout(() => launchBossShot(tx, dmg), 380);
 }
-function launchBossShot(tx, dayDmg = 0) {
+const ACTION_COL = ['#ff8a8a', '#ff4a4a', '#3FC8FF', '#3DDC97'];
+function launchBossShot(tx, dayDmg = 0, action = 0) {
   if (!S.boss || S.boss.dying >= 0 || S.phase === 'over' || S.phase === 'title') { if (dayDmg) S.baseHold = 0; return; }
   S.boss.recoil = 1;
   const sx = S.bp.x, sy = S.bp.y + 30 * S.bp.s;
-  S.proj.push({ kind: 'bossShot', sx, sy, cx: (sx + tx) / 2 + (Math.random() - 0.5) * 140, cy: sy + 50, tx, ty: BASE_Y - 6, t: 0, d: E.BOSS_FLIGHT, dayDmg, color: '#ff4a4a' });
+  S.proj.push({ kind: 'bossShot', sx, sy, cx: (sx + tx) / 2 + (Math.random() - 0.5) * 140, cy: sy + 50, tx, ty: BASE_Y - 6, t: 0, d: E.BOSS_FLIGHT / 1000, dayDmg, action, color: action === 2 ? '#3FC8FF' : '#ff4a4a' });
+  if (action === 1) { smoke(sx, sy, 6); S.shake = Math.max(S.shake, 6); }
   smoke(sx, sy, 5);
   sfx.bossShot();
 }
@@ -809,7 +825,7 @@ function damageFx(d, x) {
   spark(x, BASE_Y - 6, '#ff6b6b', 24, 200, 2.8, 0.6, 300);
   smoke(x, BASE_Y - 10, 8);
   S.fx.push({ type: 'boom', x, y: BASE_Y - 6, r: 0, max: 60, t: 0, d: 0.45 });
-  text(x, BASE_Y - 30, `-${Math.round(d)}`, '#ff6b6b', 16);
+  text(x, BASE_Y - 30, `-${Math.round(d / 10)}`, '#ff6b6b', 16);
   sfx.baseHit();
   buzz(45);
 }
@@ -826,7 +842,7 @@ function endNight() {
   E.bossHolds(S);
   const first = b.rage === 1;
   ui.strikeBtn.classList.remove('show');
-  banner(`${b.name} HOLDS THE SKY`, `Rage ${b.rage}  ·  ${Math.ceil(b.hp)} HP left`);
+  banner(`${b.name} HOLDS THE SKY`, `Rage ${b.rage}  ·  ${Math.ceil(b.hp / 10)} HP left`);
   sfx.siren();
   setTimeout(() => {
     if (S.phase !== 'night') return;
@@ -1099,7 +1115,7 @@ function update(dt) {
   if (S.phase === 'night' && NIGHT) {
     S.nt += dt;
     const en = NIGHT.script.entries;
-    while (NIGHT && NIGHT.i < en.length && en[NIGHT.i].t <= S.nt) nightEntry(en[NIGHT.i++]);
+    while (NIGHT && NIGHT.i < en.length && en[NIGHT.i].t <= S.nt * 1000) nightEntry(en[NIGHT.i++]);
     // the boss survived the volley: give the player a moment to call a strike, then it holds the sky
     if (NIGHT && S.phase === 'night' && NIGHT.script.outcome === 'hold' && NIGHT.i >= en.length && !S.proj.length) {
       if (NIGHT.endAt < 0) NIGHT.endAt = S.nt + (S.strikes > 0 ? 3.5 : 0.9);
@@ -1292,7 +1308,7 @@ function drawProjectiles() {
       const enemy = p.kind === 'bossShot';
       ctx.fillStyle = enemy ? '#4a4f55' : '#eef2f5';
       ctx.fillRect(-9, -2.4, 15, 4.8);
-      ctx.fillStyle = enemy ? '#ff4a4a' : GEMS[2].color;
+      ctx.fillStyle = enemy ? (p.action === 2 ? '#3FC8FF' : '#ff4a4a') : GEMS[2].color;
       ctx.beginPath(); ctx.moveTo(6, -2.4); ctx.lineTo(11, 0); ctx.lineTo(6, 2.4); ctx.closePath(); ctx.fill();
       ctx.fillRect(-9, -4.5, 3, 9);
     }
@@ -1311,7 +1327,7 @@ function drawBossBar() {
   ctx.fillText(b.name + (b.rage ? `  RAGE ${b.rage}` : ''), x, y);
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(232,238,247,0.8)';
-  ctx.fillText(`${Math.ceil(b.hp)} / ${b.max}`, x + w, y);
+  ctx.fillText(`${Math.ceil(b.hp / 10)} / ${b.max / 10}`, x + w, y);
   rr(ctx, x, y + 5, w, 8, 4);
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fill();
@@ -1319,6 +1335,20 @@ function drawBossBar() {
   ctx.fillRect(x + 1, y + 6, (w - 2) * (b.lag / b.max), 6);
   ctx.fillStyle = b.color;
   ctx.fillRect(x + 1, y + 6, (w - 2) * (b.hp / b.max), 6);
+  // live readout of the boss's brain chip (a TapeOut circuit)
+  const br = E.brainOf(b.type), c = S.chip, fresh = c && S.time - c.t < 2.2 && S.phase === 'night';
+  ctx.font = '700 8.5px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(232,238,247,0.5)';
+  const label = `BRAIN CHIP · ${br.circuit.nand} NAND + ${br.circuit.latch} LATCH · state ${(S.phase === 'night' && NIGHT && c ? c.state : b.brain).join('')}`;
+  ctx.fillText(label, x, y + 24);
+  if (fresh) {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = ACTION_COL[c.action];
+    ctx.globalAlpha = Math.min(1, 2.2 - (S.time - c.t));
+    ctx.fillText(`OUT ${c.action.toString(2).padStart(2, '0')} → ${E.ACTIONS[c.action]}`, x + w, y + 24);
+    ctx.globalAlpha = 1;
+  }
 }
 
 // war machines, drawn around (0,0); returns the sensor (eye) position
@@ -1518,8 +1548,8 @@ function drawBase() {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgba(232,238,247,0.75)';
-  ctx.fillText(`BASE ${Math.ceil(shownBase)}`, 14, BASE_Y + 21);
-  if (S.shield > 0 && S.phase === 'night') { ctx.textAlign = 'right'; ctx.fillStyle = '#3FC8FF'; ctx.fillText(`SHIELD ${Math.ceil(S.shield)}`, W - 14, BASE_Y + 21); }
+  ctx.fillText(`BASE ${Math.ceil(shownBase / 10)}`, 14, BASE_Y + 21);
+  if (S.shield > 0 && S.phase === 'night') { ctx.textAlign = 'right'; ctx.fillStyle = '#3FC8FF'; ctx.fillText(`SHIELD ${Math.ceil(S.shield / 10)}`, W - 14, BASE_Y + 21); }
 }
 
 function drawWeapons() {
@@ -1537,7 +1567,7 @@ function drawWeapons() {
     const v = S.shown[i];
     let big, prog = null, val;
     if (i < 3) { val = S.phase === 'night' ? S.ammo[i] : Math.floor(v / 3); big = `x${val}`; prog = S.phase === 'night' ? null : (v % 3) / 3; }
-    else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield) : Math.round(v * 2); big = `${val}`; }
+    else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield / 10) : Math.round(v * 2); big = `${val}`; }
     else { val = Math.round(v); big = `+${val}`; }
     const tier = i < 3 && S.phase === 'night' ? S.wtier[i] : tierOf(i, i < 3 ? Math.floor(v / 3) : val);
     ctx.font = '800 7.5px "JetBrains Mono", monospace';

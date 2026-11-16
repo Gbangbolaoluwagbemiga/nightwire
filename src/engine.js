@@ -1,13 +1,31 @@
 // Nightwire rules engine. Pure and deterministic, no DOM: the same seed and the same actions always give
 // the same game. The live game, the AI rival, friend duels and the score verifier all run on this file.
+// Integers only, so the Solidity verifier (contracts/src/NightwireEngine.sol) gets identical results:
+// HP, damage, shield and base are in tenths; charge is in half-points; fight times are in milliseconds.
 
 export const N = 8;
 export const CORE = 5; // airstrike beacon
 export const MOVES_PER_DAY = 14;
 export const MAX_STRIKES = 5;
-export const BASE_MAX = 100;
-export const TIER_MUL = [1, 1.25, 1.6];
-export const NIGHT_START = 2.0;
+export const BASE_MAX = 1000; // tenths
+export const TIER_PCT = [100, 125, 160];
+export const NIGHT_START = 2000; // ms
+// round(a / b) for a >= 0, b > 0 (halves round up, like Math.round)
+export const rdiv = (a, b) => Math.floor((2 * a + b) / (2 * b));
+import { CHIPS } from './chips.js';
+import { load as loadChip, beat as chipBeat } from './tap02.js';
+
+// Each war machine's combat brain is a TapeOut NAND/LATCH chip (src/chips.js, taped out on X Layer).
+// Before every attack the boss steps its chip once; the 2 output bits pick the action.
+export const ACTIONS = ['BARRAGE', 'FOCUS FIRE', 'EMP', 'FIELD REPAIR'];
+const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive'];
+const BRAINS = BRAIN_KEYS.map((k) => loadChip(CHIPS[k].netlist, CHIPS[k].nIn, CHIPS[k].nOut));
+export const brainOf = (type) => ({ key: BRAIN_KEYS[type], chip: CHIPS[BRAIN_KEYS[type]], circuit: BRAINS[type] });
+// chip inputs: boss HP quarter (2 bits), base HP quarter (2), shield up (1), rage (2, capped at 3)
+export function brainInputs(hp, max, base, baseMax, shield, rage) {
+  const bq = Math.min(3, Math.floor((hp * 4) / max)), sq = Math.min(3, Math.floor((base * 4) / baseMax)), r = Math.min(3, rage);
+  return [bq & 1, bq >> 1, sq & 1, sq >> 1, shield > 0 ? 1 : 0, r & 1, r >> 1];
+}
 // tier thresholds: shots for guns, points for shield/repair
 export const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 3 ? (v >= 40 ? 2 : v >= 20 ? 1 : 0) : (v >= 16 ? 2 : v >= 8 ? 1 : 0));
 export const BOSSES = [
@@ -25,12 +43,12 @@ export function rng(seed) {
       let t = (R.s = (R.s + 0x6d2b79f5) >>> 0);
       t = Math.imul(t ^ (t >>> 15), t | 1);
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      return (t ^ (t >>> 14)) >>> 0; // uint32
     },
   };
   return R;
 }
-const r5 = (R) => Math.floor(R.next() * 5);
+const r5 = (R) => Math.floor((R.next() * 5) / 4294967296); // exact: the product is below 2^35
 export function seedFrom(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -44,8 +62,9 @@ const NOFX = new Proxy({}, { get: () => () => {} });
 export function makeBoss(stageNo) {
   const d = BOSSES[(stageNo - 1) % BOSSES.length];
   const mk = Math.floor((stageNo - 1) / BOSSES.length);
-  const hp = Math.round(130 * 1.42 ** (stageNo - 1));
-  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
+  let hp = 1300; // tenths; x1.42 per stage
+  for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 142, 100);
+  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
 export function newRun(seed, mk = plain) {
@@ -215,15 +234,15 @@ export function applyClear(st, G, clear, creates, fx = NOFX) {
       fx.grenade(r, c);
     }
   }
-  const mul = 1 + 0.5 * (st.cascade - 1);
+  const mulH = st.cascade + 1; // chain multiplier 1 + 0.5 (cascade - 1), in half-points
   let n = 0;
   for (const key of clear) {
     const g = G[Math.floor(key / N)][key % N];
     if (!g) continue;
     g.gone = true;
     n++;
-    if (g.c < CORE) st.charge[g.c] += mul;
-    fx.pop(g, mul);
+    if (g.c < CORE) st.charge[g.c] += mulH;
+    fx.pop(g, mulH / 2);
   }
   for (const [key, cr] of creates) {
     const g = G[Math.floor(key / N)][key % N];
@@ -232,7 +251,7 @@ export function applyClear(st, G, clear, creates, fx = NOFX) {
     fx.create(g, cr.sp);
     if (cr.sp === 'core') addStrike(st, fx, 'A match of 5', g);
   }
-  if (n) st.score += Math.round(n * 10 * st.cascade);
+  if (n) st.score += n * 10 * st.cascade;
   return n;
 }
 
@@ -254,7 +273,7 @@ export function useMove(st) {
   st.moves--;
   const b = st.boss;
   if (b && b.present && st.moves > 0 && (MOVES_PER_DAY - st.moves) % 4 === 0) {
-    const dmg = 3 + 2 * st.stageNo + b.rage;
+    const dmg = (3 + 2 * st.stageNo + b.rage) * 10;
     st.base = Math.max(0, st.base - dmg);
     return dmg;
   }
@@ -296,43 +315,46 @@ export function playMove(run, a, b, fx = NOFX, mk = plain) {
 // ---------------------------------------------------------------- night
 // Turn the day's munitions into weapons and lay out the fight's timeline.
 export function planNight(st) {
-  const mul = 1 + 0.12 * (st.stageNo - 1);
+  const mulP = 100 + 12 * (st.stageNo - 1); // percent
   for (let i = 0; i < 3; i++) {
-    st.ammo[i] = Math.floor(st.charge[i] / 3);
-    st.charge[i] -= st.ammo[i] * 3;
+    st.ammo[i] = Math.floor(st.charge[i] / 6); // 3 points (6 half-points) per shot
+    st.charge[i] -= st.ammo[i] * 6;
     st.wtier[i] = tierOf(i, st.ammo[i]);
   }
-  const shieldTier = tierOf(3, Math.round(st.charge[3] * 2));
-  st.shield = Math.round(st.charge[3] * 2 * TIER_MUL[shieldTier]);
+  const shieldPts = st.charge[3]; // 2 shield per point = 1 per half-point
+  st.shield = rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * 10;
   st.shieldMax = Math.max(1, st.shield);
   st.charge[3] = 0;
-  const repTier = tierOf(4, st.charge[4]);
-  const heal = Math.min(st.baseMax - st.base, Math.round(st.charge[4] * TIER_MUL[repTier]));
+  const repTier = tierOf(4, Math.floor(st.charge[4] / 2));
+  const heal = Math.min(st.baseMax - st.base, rdiv(st.charge[4] * TIER_PCT[repTier], 200) * 10);
   st.charge[4] = 0;
   const shots = [];
   const left = st.ammo.slice();
   while (left.some((n) => n > 0)) for (let w = 0; w < 3; w++) if (left[w] > 0) { left[w]--; shots.push(w); }
-  const spacing = shots.length ? Math.max(0.16, Math.min(0.42, 7 / shots.length)) : 0;
-  const events = shots.map((w, j) => ({ t: NIGHT_START + j * spacing, kind: w, dmg: [5, 8, 2.6][w] * mul * TIER_MUL[st.wtier[w]] }));
-  const dur = Math.max(4.5, shots.length * spacing + 0.5);
+  const spacing = shots.length ? Math.max(160, Math.min(420, Math.floor(7000 / shots.length))) : 0;
+  const events = shots.map((w, j) => ({ t: NIGHT_START + j * spacing, kind: w, dmg: rdiv([50, 80, 26][w] * mulP * TIER_PCT[st.wtier[w]], 10000) }));
+  const dur = Math.max(4500, shots.length * spacing + 500);
   const rage = st.boss.rage;
   const attacks = 4 + st.stageNo + rage;
-  const bossDmg = (6 + 3 * (st.stageNo - 1)) * (1 + 0.25 * rage);
-  for (let j = 0; j < attacks; j++) events.push({ t: NIGHT_START + 0.6 + (j * dur) / attacks, kind: 'boss', dmg: bossDmg });
+  const bossDmg = rdiv((6 + 3 * (st.stageNo - 1)) * 10 * (4 + rage), 4);
+  for (let j = 0; j < attacks; j++) events.push({ t: NIGHT_START + 600 + Math.floor((j * dur) / attacks), kind: 'boss', dmg: bossDmg });
   events.sort((x, y) => x.t - y.t);
   events.forEach((e, i) => { e.id = i; });
-  return { events, heal, mul, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes };
+  return {
+    events, heal, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
+    max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(),
+  };
 }
 
 // Hit timings per weapon (seconds after firing) and how a shot's damage splits across its projectiles.
-export function volley(w, tier, dmg) {
-  if (w === 0) { const n = [4, 6, 9][tier]; return Array.from({ length: n }, (_, j) => ({ delay: j * 0.035, d: 0.16, dmg: (dmg / n) * 1.6 })); }
-  if (w === 1) { const n = tier === 2 ? 3 : 1; return Array.from({ length: n }, (_, j) => ({ delay: j * 0.1, d: tier === 0 ? 0.7 : 0.5, dmg: (dmg / n) * (n > 1 ? 1.3 : 1) })); }
+export function volley(w, tier, dmg) { // delay and flight in ms
+  if (w === 0) { const n = [4, 6, 9][tier]; return Array.from({ length: n }, (_, j) => ({ delay: j * 35, d: 160, dmg: rdiv(dmg * 16, n * 10) })); }
+  if (w === 1) { const n = tier === 2 ? 3 : 1; return Array.from({ length: n }, (_, j) => ({ delay: j * 100, d: tier === 0 ? 700 : 500, dmg: n > 1 ? rdiv(dmg * 13, n * 10) : dmg })); }
   const n = [2, 3, 4][tier];
-  return Array.from({ length: n }, (_, j) => ({ delay: j * 0.08, d: 0.75, dmg: (dmg * 3) / n }));
+  return Array.from({ length: n }, (_, j) => ({ delay: j * 80, d: 750, dmg: rdiv(dmg * 3, n) }));
 }
-export const BOMB = (j) => ({ delay: 0.15 + j * 0.09, d: 0.38 });
-export const BOSS_AIM = 0.38, BOSS_FLIGHT = 0.7;
+export const BOMB = (j) => ({ delay: 150 + j * 90, d: 380 });
+export const BOSS_AIM = 380, BOSS_FLIGHT = 700;
 
 // Resolve the whole fight from the plan and the airstrike call times. crState = crit RNG state at nightfall.
 export function simNight(plan, strikes, crState) {
@@ -341,7 +363,7 @@ export function simNight(plan, strikes, crState) {
   const items = [];
   let q = 0;
   const push = (t, o) => { o.t = t; o.q = q++; items.push(o); };
-  if (plan.heal > 0) push(1.2, { type: 'heal', v: plan.heal });
+  if (plan.heal > 0) push(1200, { type: 'heal', v: plan.heal });
   for (const ev of plan.events) {
     if (ev.kind === 'boss') {
       push(ev.t, { type: 'bfire', id: ev.id });
@@ -355,11 +377,14 @@ export function simNight(plan, strikes, crState) {
   }
   strikes.forEach((ts, sid) => {
     push(ts, { type: 'strike', sid });
-    for (let j = 0; j < 3; j++) push(ts + BOMB(j).delay + BOMB(j).d, { type: 'hit', src: 'bomb', dmg: 16 * plan.mul, sid, j });
+    for (let j = 0; j < 3; j++) push(ts + BOMB(j).delay + BOMB(j).d, { type: 'hit', src: 'bomb', dmg: rdiv(160 * plan.mulP, 100), sid, j });
   });
   items.sort((x, y) => x.t - y.t || x.q - y.q);
 
   let hp = plan.hp, base = plan.base, shield = plan.shield, score = plan.score, left = plan.strikes, dead = false, over = false, killT = -1;
+  let brain = plan.brain.slice();
+  const circuit = BRAINS[plan.type];
+  const act = {};
   const live = new Set();
   const out = [];
   for (const it of items) {
@@ -372,25 +397,43 @@ export function simNight(plan, strikes, crState) {
       out.push({ ...it, strikes: left });
     } else if (it.type === 'hit') {
       if (dead || (it.sid !== undefined && !live.has(it.sid))) continue;
-      const crit = CR.next() < 0.1;
-      const d = Math.round(it.dmg * (crit ? 2 : 1) * 10) / 10;
+      const crit = CR.next() < 429496730; // 10%
+      const d = it.dmg * (crit ? 2 : 1);
       hp = Math.max(0, hp - d);
-      score += Math.round(d * 2);
+      score += rdiv(d, 5); // 2 points per HP
       out.push({ ...it, d, crit, hp, score });
       if (hp <= 0) { dead = true; killT = it.t; out.push({ t: it.t, type: 'kill' }); }
+    } else if (it.type === 'bfire') { // the boss steps its brain chip to choose this attack
+      if (dead) continue;
+      const r = chipBeat(circuit, brain, brainInputs(hp, plan.max, base, plan.baseMax, shield, plan.rage));
+      brain = r.state;
+      act[it.id] = r.outputs[0] + 2 * r.outputs[1];
+      out.push({ ...it, action: act[it.id], brain: brain.slice() });
     } else if (it.type === 'bhit') {
       if (dead) continue;
-      const absorbed = Math.min(shield, it.dmg);
-      shield -= absorbed;
-      const rest = it.dmg - absorbed;
+      const action = act[it.id] || 0;
+      if (action === 3) { // field repair instead of attacking
+        hp = Math.min(plan.max, hp + rdiv(plan.max * 8, 100));
+        out.push({ ...it, action, hp, absorbed: 0, rest: 0, shield, base });
+        continue;
+      }
+      let absorbed, rest;
+      if (action === 2) { absorbed = shield; shield = 0; rest = rdiv(it.dmg * 4, 10); } // EMP: shield knocked out
+      else {
+        const dmg = action === 1 ? rdiv(it.dmg * 18, 10) : it.dmg;
+        absorbed = Math.min(shield, dmg);
+        shield -= absorbed;
+        rest = dmg - absorbed;
+      }
       base = Math.max(0, base - rest);
-      out.push({ ...it, absorbed, rest, shield, base });
+      out.push({ ...it, action, absorbed, rest, shield, base });
       if (base <= 0) { over = true; out.push({ t: it.t, type: 'over' }); }
-    } else if (!dead) out.push(it); // fire, bfire, blaunch
+    } else if (it.type === 'blaunch') { if (!dead) out.push({ ...it, action: act[it.id] || 0 }); }
+    else if (!dead) out.push(it); // fire
   }
   return {
     entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT,
-    lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, base, shield, score, strikes: left, crEnd: CR.s,
+    lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, base, shield, score, strikes: left, crEnd: CR.s, brain,
   };
 }
 
@@ -401,13 +444,14 @@ export function finishNight(run, script) {
   st.shield = script.shield;
   st.score = script.score;
   st.strikes = script.strikes;
+  st.boss.brain = script.brain;
   st.ammo = [0, 0, 0];
   run.CR.s = script.crEnd;
   if (script.outcome === 'over') st.over = true;
   return script.outcome;
 }
 export function bossDefeated(st) { const bonus = 500 * st.stageNo; st.score += bonus; st.bossesDown++; return bonus; }
-export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 30); st.boss = makeBoss(st.stageNo); }
+export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo); }
 export function bossHolds(st) { st.boss.present = true; st.boss.rage++; }
 export function startDay(run) {
   run.st.moves = MOVES_PER_DAY;
@@ -427,9 +471,9 @@ export function runNight(run, strikes) {
 }
 
 // ---------------------------------------------------------------- replay log + verifier
-// A move is "r1c1r2c2" (e.g. "3435"); a night is "N" followed by airstrike call times ("N2.41|3.07").
+// A move is "r1c1r2c2" (e.g. "3435"); a night is "N" followed by airstrike call times in ms ("N2410|3070").
 export const encodeMove = (a, b) => `${a[0]}${a[1]}${b[0]}${b[1]}`;
-export const encodeNight = (strikes) => `N${strikes.map((t) => t.toFixed(2)).join('|')}`;
+export const encodeNight = (strikes) => `N${strikes.join('|')}`;
 export function parseAction(s) {
   if (s[0] === 'N') return { night: true, strikes: s.length > 1 ? s.slice(1).split('|').map(Number) : [] };
   return { night: false, a: [+s[0], +s[1]], b: [+s[2], +s[3]] };
@@ -445,4 +489,21 @@ export function replay(seed, actions) {
     } else if (!playMove(run, act.a, act.b)) return { ok: false, reason: `illegal move ${actions[i]} at ${i}`, st: run.st };
   }
   return { ok: true, st: run.st };
+}
+
+// Compact binary form of a replay log, as the Solidity verifier reads it (see NightwireEngine.sol).
+export function encodeBinary(actions) {
+  const out = [];
+  for (const s of actions) {
+    const a = parseAction(s);
+    if (a.night) {
+      out.push(0x80 | a.strikes.length);
+      for (const t of a.strikes) out.push((t >> 8) & 255, t & 255);
+    } else {
+      const ka = a.a[0] * 8 + a.a[1], kb = a.b[0] * 8 + a.b[1];
+      const lo = Math.min(ka, kb), hi = Math.max(ka, kb);
+      out.push(lo * 2 + (hi - lo === 1 ? 0 : 1));
+    }
+  }
+  return `0x${out.map((x) => x.toString(16).padStart(2, '0')).join('')}`;
 }

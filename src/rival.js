@@ -26,7 +26,7 @@ function value(before, after, smart) {
   let v = d[0] + d[1] * 1.15 + d[2] * 1.1 + (s1.strikes - s0.strikes) * 7 + (s1.score - s0.score) * 0.004;
   const hurt = 1 - s0.base / s0.baseMax;
   if (!smart) return v + d[3] * 0.8 + d[4] * 0.5;
-  const threat = (4 + s0.stageNo + s0.boss.rage) * (6 + 3 * (s0.stageNo - 1)) * (1 + 0.25 * s0.boss.rage);
+  const threat = (4 + s0.stageNo + s0.boss.rage) * (6 + 3 * (s0.stageNo - 1)) * (1 + 0.25 * s0.boss.rage) * 10;
   v += d[3] * (0.4 + Math.min(1.4, threat / Math.max(20, s0.base) * 0.6));
   v += d[4] * (0.1 + hurt * 2.2);
   let sp = 0;
@@ -72,8 +72,8 @@ export function makeRival(seed, level, ghostActions = null) {
   function chooseStrikes(plan) {
     const have = run.st.strikes;
     if (!have) return [];
-    const at = (k) => Array.from({ length: k }, (_, j) => +(2.4 + j * 0.6).toFixed(2));
-    if (level === 'easy') return Math.random() < 0.6 ? [3.1] : [];
+    const at = (k) => Array.from({ length: k }, (_, j) => 2400 + j * 600);
+    if (level === 'easy') return Math.random() < 0.6 ? [3100] : [];
     if (level === 'normal') return at(have);
     for (let k = 0; k <= have; k++) if (E.simNight(plan, at(k), run.CR.s).outcome === 'kill') return at(k);
     return at(have);
@@ -115,7 +115,7 @@ export function makeRival(seed, level, ghostActions = null) {
     } else strikes = chooseStrikes(plan);
     const script = E.simNight(plan, strikes, run.CR.s);
     R.log.push(E.encodeNight(script.entries.filter((e) => e.type === 'strike').map((e) => e.t)));
-    const end = script.outcome === 'kill' ? script.killT + 2.2 : script.outcome === 'over' ? script.lastT + 0.6 : script.lastT + 0.9;
+    const end = script.outcome === 'kill' ? script.killT + 2200 : script.outcome === 'over' ? script.lastT + 600 : script.lastT + 900; // ms
     R.night = { script, t: 0, i: 0, end, hp: plan.hp, base: st.base };
     R.phase = 'night';
     R.dirty = true;
@@ -144,7 +144,7 @@ export function makeRival(seed, level, ghostActions = null) {
       if (R.timer <= 0) { R.timer = cfg.pace * (0.75 + Math.random() * 0.5); doMove(); }
     } else if (R.phase === 'night') {
       const n = R.night;
-      n.t += dt;
+      n.t += dt * 1000;
       while (n.i < n.script.entries.length && n.script.entries[n.i].t <= n.t) {
         const e = n.script.entries[n.i++];
         if (e.hp !== undefined) n.hp = e.hp;
