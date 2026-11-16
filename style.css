@@ -262,3 +262,15 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 .ranklist .rv.bad { color: var(--red); font-weight: 800; }
 .ranklist .empty { justify-content: center; color: var(--muted); }
 .ranknote { font-size: calc(var(--u) * 12); color: var(--muted); margin: calc(var(--u) * 6) 0 calc(var(--u) * 16); }
+
+/* X Layer */
+.chainrow { display: none; width: 100%; margin-bottom: calc(var(--u) * 12); }
+.chainrow.on { display: block; }
+.chainbtn { width: 100%; height: calc(var(--u) * 44); border-radius: calc(var(--u) * 14); display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 8); font-weight: 700; font-size: calc(var(--u) * 14.5); color: #e8eef7; background: linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,.04)); border: 1px solid rgba(255,255,255,.22); }
+.chainbtn svg { width: calc(var(--u) * 18); height: calc(var(--u) * 18); fill: #e8eef7; }
+.chainbtn:disabled { opacity: .5; }
+.chainst { min-height: calc(var(--u) * 16); margin-top: calc(var(--u) * 6); font-size: calc(var(--u) * 12); line-height: 1.4; color: var(--muted); }
+.chainst a { color: var(--green); }
+.chainst .ok { color: var(--green); font-weight: 800; }
+.chainst .bad { color: var(--red); font-weight: 800; }
+.ranklist .sec { justify-content: space-between; background: none; border: 0; padding: calc(var(--u) * 6) calc(var(--u) * 4) 0; font-family: "JetBrains Mono", monospace; font-size: calc(var(--u) * 11); letter-spacing: .1em; color: var(--muted); }

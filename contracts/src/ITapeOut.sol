@@ -35,3 +35,31 @@ interface IERC20 {
     function approve(address, uint256) external returns (bool);
     function balanceOf(address) external view returns (uint256);
 }
+
+/// DeWEB (TAP-10, TapeKit SPEC Appendix B) on X Layer
+interface IContainerOpener {
+    function open(address circuits, uint256 tokenId) external payable;
+    function accountOf(address circuits, uint256 tokenId) external view returns (address);
+    function isDeployed(address circuits, uint256 tokenId) external view returns (bool);
+    function FEE() external view returns (uint256);
+}
+
+interface ISiteRegistry {
+    function putFile(address container, string calldata path, string calldata contentType, bytes32 sha256Hash, bytes calldata data) external;
+    function appendChunk(address container, string calldata path, uint256 expectIndex, bytes calldata data) external;
+    function setFallback(address container, string calldata path) external;
+    function fileInfo(address container, string calldata path)
+        external view returns (uint32 size, string memory contentType, bytes32 sha256Hash, uint40 updatedAt, uint256 chunkCount);
+    function read(address container, string calldata path) external view returns (bytes memory);
+}
+
+interface IDomainBinding {
+    function bind(string calldata name, address container, uint256 months) external payable;
+    function monthlyFee() external view returns (uint256);
+    function isContainerLive(address container) external view returns (bool);
+}
+
+interface IFactoryList {
+    function cpuCount() external view returns (uint256);
+    function cpuAt(uint256 i) external view returns (address);
+}

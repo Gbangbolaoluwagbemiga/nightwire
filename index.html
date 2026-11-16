@@ -90,15 +90,16 @@
       </div>
       <div class="newbest" id="ovNew">New best!</div>
       <div class="verify" id="ovVerify"></div>
+      <div class="chainrow" id="chainRow"><button class="chainbtn" id="chainBtn"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7zm0 2.3 6.8 3.8L12 11.9 5.2 8.1zM5 9.8l6 3.4v6.6l-6-3.3zm8 10V13.2l6-3.4v6.7z"/></svg><span>Put this score on X Layer</span></button><div class="chainst" id="chainSt"></div></div>
       <button class="cta big" id="againBtn">Play again</button>
       <div class="row2"><button class="ghostbtn" id="duelBtn">Challenge a friend</button><button class="ghostbtn" id="menuBtn">Menu</button></div>
     </div>
 
     <div id="ranks" class="screen">
       <div class="ov-title small">Leaderboard</div>
-      <div class="seg" id="rankSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily</button><button data-m="duel">Duels</button></div>
+      <div class="seg" id="rankSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily</button><button data-m="duel">Duels</button><button data-m="chain">X Layer</button></div>
       <ol class="ranklist" id="rankList"></ol>
-      <p class="ranknote">Runs on this device. ✓ means the score was re-checked by replaying every move from the seed.</p>
+      <p class="ranknote" id="rankNote">Runs on this device. ✓ means the score was re-checked by replaying every move from the seed.</p>
       <button class="cta big" id="ranksBack">Back</button>
     </div>
   </div>

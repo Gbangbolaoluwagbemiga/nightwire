@@ -1,6 +1,7 @@
 import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 import * as E from './engine.js';
 import { makeRival, LEVELS } from './rival.js';
+import * as C from './chain.js';
 
 // ================================================================ layout (logical units, portrait 390 x 860)
 const W = 390, H = 860;
@@ -597,7 +598,7 @@ document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('
 document.querySelectorAll('#lvlSeg button').forEach((b) => b.addEventListener('click', () => { pick.level = b.dataset.l; sfx.select(); syncPick(); }));
 function modeFromPick() {
   if (pick.kind === 'ai') return { kind: 'ai', level: pick.level, seed: 0 };
-  if (pick.kind === 'daily') return { kind: 'daily', level: null, seed: todaySeed() };
+  if (pick.kind === 'daily') return { kind: 'daily', level: null, seed: todaySeed(), day: E.dayNumber() };
   if (pick.kind === 'duel') return { kind: 'duel', level: null, seed: DUEL.seed, ghost: DUEL };
   return { kind: 'solo', level: null, seed: 0 };
 }
@@ -605,6 +606,8 @@ $('playBtn').addEventListener('click', () => { unlockAudio(); newGame(modeFromPi
 $('againBtn').addEventListener('click', () => { unlockAudio(); newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
 $('menuBtn').addEventListener('click', () => { ui.over.classList.remove('show'); ui.title.classList.add('show'); RIVAL = null; rv.box.classList.remove('show'); S.phase = 'title'; syncPick(); });
 $('duelBtn').addEventListener('click', () => { unlockAudio(); shareDuel(); });
+$('chainBtn').addEventListener('click', () => { unlockAudio(); submitToChain(); });
+document.querySelector('#rankSeg button[data-m=chain]').hidden = !C.enabled();
 $('ranksBtn').addEventListener('click', () => { sfx.select(); showRanks(pick.kind === 'duel' ? 'solo' : pick.kind); });
 document.querySelectorAll('#rankSeg button').forEach((b) => b.addEventListener('click', () => showRanks(b.dataset.m)));
 $('ranksBack').addEventListener('click', () => { ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); });
@@ -925,6 +928,9 @@ function gameOver() {
       ? `<span class="ok">✓</span> Score verified by replaying all ${LOG.length} actions · seed ${MODE.seed.toString(16).toUpperCase()}`
       : `<span class="bad">✗</span> Replay mismatch (${check.reason || (!check.st.over ? 'replay did not end the run' : `replay gave ${check.st.score}`)})`;
     $('ovVs').classList.toggle('on', !!RIVAL);
+    $('chainRow').classList.toggle('on', C.enabled() && ok && MODE.kind !== 'duel' && S.score > 0);
+    $('chainBtn').disabled = false;
+    $('chainSt').textContent = MODE.kind === 'daily' ? 'Replayed by the Nightwire engine on X Layer, then ranked on today\'s board.' : 'Replayed by the Nightwire engine on X Layer, then ranked all-time.';
     if (RIVAL) {
       $('vsYou').textContent = fmt(S.score);
       $('vsYouS').textContent = `stage ${S.stageNo}`;
@@ -955,7 +961,57 @@ function shareDuel() {
   else window.prompt('Copy this challenge link', url);
 }
 
+// put a finished run on X Layer: a free dry run first, then the player's wallet sends it
+async function submitToChain() {
+  if (!lastResult) return;
+  const st = $('chainSt'), btn = $('chainBtn');
+  const hex = E.encodeBinary(lastResult.log.split(','));
+  const day = MODE.kind === 'daily' ? MODE.day : C.FREE_PLAY;
+  btn.disabled = true;
+  try {
+    st.textContent = 'Asking X Layer to replay your run…';
+    const chk = await C.checkRun(lastResult.seed, hex);
+    if (!chk.ok || !chk.over || chk.score !== lastResult.score) { st.innerHTML = `<span class="bad">✗</span> X Layer's replay disagrees (${chk.score}).`; return; }
+    let fee = null;
+    try { fee = await C.estimateFee(day, lastResult.seed, hex); } catch { /* shown without a fee */ }
+    st.innerHTML = `<span class="ok">✓</span> X Layer replayed it: <b>${fmt(chk.score)}</b>${fee !== null ? ` · fee ≈ ${fee.toFixed(4)} OKB` : ''}. Confirm in your wallet…`;
+    const { hash } = await C.submitRun(day, lastResult.seed, hex);
+    st.innerHTML = `Sent. Waiting for X Layer… <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>`;
+    const good = await C.waitFor(hash);
+    if (!good) { st.innerHTML = `<span class="bad">✗</span> The transaction failed. <a href="${C.txUrl(hash)}" target="_blank" rel="noopener">details</a>`; btn.disabled = false; return; }
+    const board = MODE.kind === 'daily' ? await C.dailyBoard(day) : await C.allTimeBoard();
+    const rank = board.findIndex((e) => e.score === lastResult.score) + 1;
+    st.innerHTML = `<span class="ok">✓ On chain.</span> ${rank ? `Rank <b>#${rank}</b> ${MODE.kind === 'daily' ? 'today' : 'all-time'}. ` : ''}<a href="${C.txUrl(hash)}" target="_blank" rel="noopener">view tx</a>`;
+    sfx.upgrade();
+  } catch (e) {
+    st.innerHTML = `<span class="bad">✗</span> ${String(e.message || e).slice(0, 140)}`;
+    btn.disabled = false;
+  }
+}
+
+async function showChainRanks() {
+  const list = $('rankList');
+  list.innerHTML = '<li class="empty">Reading X Layer…</li>';
+  try {
+    const day = await C.today();
+    const [d, a] = await Promise.all([C.dailyBoard(day), C.allTimeBoard()]);
+    const rows = (xs) => (xs.length ? xs.map((r, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">stage ${r.stage}<br>${C.short(r.player)}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No verified runs yet.</li>');
+    list.innerHTML = `<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d.slice(0, 5))}<li class="sec"><span>ALL-TIME</span></li>${rows(a.slice(0, 5))}`;
+  } catch (e) {
+    list.innerHTML = `<li class="empty">Couldn't reach X Layer (${String(e.message || e).slice(0, 60)}).</li>`;
+  }
+}
+
 function showRanks(mode) {
+  if (mode === 'chain') {
+    ui.ranks.classList.add('show');
+    ui.title.classList.remove('show');
+    document.querySelectorAll('#rankSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
+    $('rankNote').textContent = 'Every run here was replayed by the Nightwire engine on X Layer; the war machines think with TapeOut circuits.';
+    showChainRanks();
+    return;
+  }
+  $('rankNote').textContent = 'Runs on this device. ✓ means the score was re-checked by replaying every move from the seed.';
   ui.ranks.classList.add('show');
   ui.title.classList.remove('show');
   document.querySelectorAll('#rankSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));

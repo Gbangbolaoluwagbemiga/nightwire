@@ -696,7 +696,7 @@ contract NightwireEngine {
     function _runNight(G memory g, uint16[] memory strikes) internal view returns (uint8 outcome) {
         Night memory nt = _planNight(g);
         Heap memory h;
-        h.k = new uint256[](1 + nt.nev * 10 + strikes.length * 4);
+        h.k = new uint256[](1 + nt.nev * 2 + strikes.length * 2);
         h.v = new uint256[](h.k.length);
         if (nt.heal > 0) _push(h, 1200, 0, nt.heal);
         uint256 nBoss;
@@ -713,29 +713,26 @@ contract NightwireEngine {
             }
             uint256 tier = nt.wtier[kind];
             uint256 n = _volleyN(kind, tier);
-            for (uint256 j; j < n; j++) {
-                uint256 d;
-                uint256 tt;
-                if (kind == 0) {
-                    d = _rdiv(dmg * 16, n * 10);
-                    tt = t + j * 35 + 160;
-                } else if (kind == 1) {
-                    d = n > 1 ? _rdiv(dmg * 13, n * 10) : dmg;
-                    tt = t + j * 100 + (tier == 0 ? 700 : 500);
-                } else {
-                    d = _rdiv(dmg * 3, n);
-                    tt = t + j * 80 + 750;
-                }
-                _push(h, tt, 2, d | (uint256(0xff) << 32)); // sid 0xff = not a bomb
+            // one hit per volley: its total damage, landing with the first projectile
+            uint256 d;
+            uint256 tt;
+            if (kind == 0) {
+                d = n * _rdiv(dmg * 16, n * 10);
+                tt = t + 160;
+            } else if (kind == 1) {
+                d = n > 1 ? n * _rdiv(dmg * 13, n * 10) : dmg;
+                tt = t + (tier == 0 ? 700 : 500);
+            } else {
+                d = n * _rdiv(dmg * 3, n);
+                tt = t + 750;
             }
+            _push(h, tt, 2, d | (uint256(0xff) << 32)); // sid 0xff = not a bomb
         }
         uint256 bombDmg = _rdiv(160 * nt.mulP, 100);
         for (uint256 s; s < strikes.length; s++) {
             uint256 ts = strikes[s];
             _push(h, ts, 6, s);
-            for (uint256 j; j < 3; j++) {
-                _push(h, ts + 150 + j * 90 + 380, 2, bombDmg | (s << 32));
-            }
+            _push(h, ts + 530, 2, (3 * bombDmg) | (s << 32)); // all three bombs, when the first lands
         }
 
         uint8[] memory act = new uint8[](nBoss);

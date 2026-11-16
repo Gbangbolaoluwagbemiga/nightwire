@@ -356,7 +356,13 @@ export function volley(w, tier, dmg) { // delay and flight in ms
   const n = [2, 3, 4][tier];
   return Array.from({ length: n }, (_, j) => ({ delay: j * 80, d: 750, dmg: rdiv(dmg * 3, n) }));
 }
+// Rules: a volley lands as ONE hit (all its damage, when its first projectile arrives); crits are per volley.
+export function volleyHit(w, tier, dmg) {
+  const v = volley(w, tier, dmg);
+  return { at: v[0].delay + v[0].d, dmg: v.reduce((sum, x) => sum + x.dmg, 0) };
+}
 export const BOMB = (j) => ({ delay: 150 + j * 90, d: 380 });
+export const STRIKE_LAND = 530; // ms after the call: the first bomb lands
 export const BOSS_AIM = 380, BOSS_FLIGHT = 700;
 
 // Resolve the whole fight from the plan and the airstrike call times. crState = crit RNG state at nightfall.
@@ -376,11 +382,12 @@ export function simNight(plan, strikes, crState) {
     }
     const tier = plan.wtier[ev.kind];
     push(ev.t, { type: 'fire', w: ev.kind, tier, id: ev.id });
-    volley(ev.kind, tier, ev.dmg).forEach((v, j) => push(ev.t + v.delay + v.d, { type: 'hit', src: ev.kind, dmg: v.dmg, id: ev.id, j }));
+    const vh = volleyHit(ev.kind, tier, ev.dmg);
+    push(ev.t + vh.at, { type: 'hit', src: ev.kind, dmg: vh.dmg, id: ev.id });
   }
   strikes.forEach((ts, sid) => {
     push(ts, { type: 'strike', sid });
-    for (let j = 0; j < 3; j++) push(ts + BOMB(j).delay + BOMB(j).d, { type: 'hit', src: 'bomb', dmg: rdiv(160 * plan.mulP, 100), sid, j });
+    push(ts + STRIKE_LAND, { type: 'hit', src: 'bomb', dmg: 3 * rdiv(160 * plan.mulP, 100), sid });
   });
   items.sort((x, y) => x.t - y.t || x.q - y.q);
 
