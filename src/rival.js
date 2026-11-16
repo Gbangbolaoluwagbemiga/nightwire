@@ -31,7 +31,21 @@ function value(before, after, smart) {
   v += d[4] * (0.1 + hurt * 2.2);
   let sp = 0;
   for (const row of after.G) for (const g of row) if (g.sp || g.c === E.CORE) sp++;
-  return v + sp * 1.6 + (s1.base <= 0 ? -999 : 0);
+  return v + sp * 1.6 + (s1.base <= 0 ? -999 : 0) + project(after);
+}
+
+// Hard looks ahead: if night fell with this arsenal, would the boss die, and would the base hold?
+function project(sim) {
+  const p = cloneRun(sim);
+  const st = p.st;
+  const strikes = Array.from({ length: st.strikes }, (_, j) => 2400 + j * 600);
+  const script = E.simNight(E.planNight(st), strikes, p.CR.s);
+  const urgency = 1 + (E.MOVES_PER_DAY - sim.st.moves) / E.MOVES_PER_DAY; // matters more as night nears
+  if (script.outcome === 'over') return -60 * urgency;
+  let v = (script.base / st.baseMax) * 14 * urgency;
+  if (script.outcome === 'kill') v += 30 * urgency;
+  else v -= (script.hp / st.boss.max) * 24 * urgency;
+  return v;
 }
 
 export function makeRival(seed, level, ghostActions = null, opts = {}) {
@@ -65,7 +79,7 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
     let best = scored[0].m, bv = -Infinity;
     for (const { m, v } of scored.slice(0, 5)) {
       let tot = v;
-      for (let k = 0; k < 3; k++) { const sim = cloneRun(run); E.playMove(sim, m[0], m[1]); tot += value(run, sim, true); yield; }
+      for (let k = 0; k < 2; k++) { const sim = cloneRun(run); E.playMove(sim, m[0], m[1]); tot += value(run, sim, true); yield; }
       if (tot > bv) { bv = tot; best = m; }
     }
     return best;

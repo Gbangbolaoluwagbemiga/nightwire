@@ -118,9 +118,10 @@ const server = http.createServer(async (req, res) => {
         day = Number(b.day);
         if (!(day === today || day === today - 1) || seed !== E.dailySeed(day)) return send(res, 400, { error: 'wrong day' });
       }
-      const v = verify(seed, b.actions);
+      const hard = mode === 'ai' && b.level === 'hard'; // VS AI hard is played on veteran rules
+      const v = verify(seed, b.actions, { hard });
       if (v.error) return send(res, 422, { error: v.error });
-      const key = crypto.createHash('sha256').update(`${seed}:${b.actions.join(',')}`).digest('hex');
+      const key = crypto.createHash('sha256').update(`${hard ? 'hard:' : ''}${seed}:${b.actions.join(',')}`).digest('hex');
       if (db.runs.some((r) => r.key === key)) return send(res, 409, { error: 'this run was already submitted' });
       const run = { key, name: cleanName(b.name), mode, level: mode === 'ai' && LEVELS.has(b.level) ? b.level : null, day, seed, score: v.st.score, stage: v.st.stageNo, bossesDown: v.st.bossesDown, at: Date.now() };
       db.runs.push(run);

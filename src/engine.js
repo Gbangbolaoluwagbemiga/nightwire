@@ -69,11 +69,16 @@ export const dailySeed = (day) => (Number((BigInt(day) * 2654435761n + 0x5eedn) 
 export const plain = (c) => ({ c, sp: null });
 const NOFX = new Proxy({}, { get: () => () => {} });
 
-export function makeBoss(stageNo) {
+// Hard (VS AI): veteran rules from stage 3 for both sides: tougher, angrier war machines
+export const VETERAN = { from: 3, hpPct: 160, dmgPct: 140, extraAttacks: 2 };
+const veteran = (st) => st.hard && st.stageNo >= VETERAN.from;
+
+export function makeBoss(stageNo, hard = false) {
   const d = BOSSES[(stageNo - 1) % BOSSES.length];
   const mk = Math.floor((stageNo - 1) / BOSSES.length);
   let hp = 1300; // tenths; x1.60 per stage
   for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 160, 100);
+  if (hard && stageNo >= VETERAN.from) hp = rdiv(hp * VETERAN.hpPct, 100);
   return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, age: 0, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
@@ -94,6 +99,7 @@ export function newRun(seed, mk = plain, opts = {}) {
     charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid,
   };
   if (opts.raid) { st.stageNo = RAID.stage; st.boss = makeRaidBoss(); }
+  if (opts.hard && !opts.raid) st.hard = true;
   return { st, R, CR, G: freshBoard(R, mk) };
 }
 
@@ -297,7 +303,7 @@ export function useMove(st) {
     const dmg = (3 + 2 * st.stageNo + b.rage) * 10;
     const absorbed = Math.min(st.shield, dmg); // the shield stays up until it is knocked down
     st.shield -= absorbed;
-    st.base = Math.max(0, st.base - (dmg - absorbed));
+    st.base = Math.max(1, st.base - (dmg - absorbed)); // daytime assaults can't finish the base: it only falls in a night battle
     return { dmg, absorbed, rest: dmg - absorbed };
   }
   return 0;
@@ -358,8 +364,9 @@ export function planNight(st) {
   const events = shots.map((w, j) => ({ t: NIGHT_START + j * spacing, kind: w, dmg: rdiv([50, 80, 26][w] * mulP * TIER_PCT[st.wtier[w]], 10000) }));
   const dur = Math.max(4500, shots.length * spacing + 500);
   const rage = st.boss.rage;
-  const attacks = 4 + st.stageNo + rage;
-  const bossDmg = rdiv((6 + 3 * (st.stageNo - 1)) * 10 * (4 + rage), 4);
+  const attacks = 4 + st.stageNo + rage + (veteran(st) ? VETERAN.extraAttacks : 0);
+  let bossDmg = rdiv((6 + 3 * (st.stageNo - 1)) * 10 * (4 + rage), 4);
+  if (veteran(st)) bossDmg = rdiv(bossDmg * VETERAN.dmgPct, 100);
   for (let j = 0; j < attacks; j++) events.push({ t: NIGHT_START + 600 + Math.floor((j * dur) / attacks), kind: 'boss', dmg: bossDmg });
   events.sort((x, y) => x.t - y.t);
   events.forEach((e, i) => { e.id = i; });
@@ -504,7 +511,7 @@ export function finishNight(run, script) {
   return script.outcome;
 }
 export function bossDefeated(st) { const bonus = 500 * st.stageNo; st.score += bonus; st.bossesDown++; return bonus; }
-export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo); }
+export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo, st.hard); }
 export function bossHolds(st) { st.boss.present = true; st.boss.rage++; }
 export function startDay(run) {
   run.st.moves = MOVES_PER_DAY; // the shield is kept

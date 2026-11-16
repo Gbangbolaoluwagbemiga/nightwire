@@ -501,7 +501,7 @@ contract NightwireEngine {
             uint32 absorbed = dmg < g.shield ? dmg : g.shield; // the shield stays up until knocked down
             g.shield -= absorbed;
             dmg -= absorbed;
-            g.base = g.base > dmg ? g.base - dmg : 0;
+            g.base = g.base > dmg ? g.base - dmg : 1; // daytime assaults can't finish the base
         }
     }
 
