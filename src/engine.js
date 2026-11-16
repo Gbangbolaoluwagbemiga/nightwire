@@ -55,6 +55,9 @@ export function seedFrom(str) {
   return h >>> 0;
 }
 export const randomSeed = () => (Math.random() * 4294967296) >>> 0;
+// Daily Op: one board per UTC day, same formula as NightwireLadder.dailySeed
+export const dayNumber = (ms = Date.now()) => Math.floor(ms / 86400000);
+export const dailySeed = (day) => (Number((BigInt(day) * 2654435761n + 0x5eedn) & 0xffffffffn)) >>> 0;
 
 export const plain = (c) => ({ c, sp: null });
 const NOFX = new Proxy({}, { get: () => () => {} });

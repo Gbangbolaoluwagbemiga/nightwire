@@ -15,5 +15,36 @@ for (let i = 0; i < count; i++) {
   if (!chk.ok || chk.st.score !== R.st.score) throw new Error(`JS replay mismatch on game ${i}`);
   games.push({ seed, actions: E.encodeBinary(R.log), score: R.st.score, stage: R.st.stageNo, bossesDown: R.st.bossesDown, over: R.st.over, n: R.log.length });
 }
-fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games }));
+// chaos games: random legal moves and airstrike calls at random (often invalid) times
+const chaos = Number(process.argv[3] || 0);
+for (let i = 0; i < chaos; i++) {
+  const seed = (0x85ebca6b * (i + 7)) >>> 0;
+  const run = E.newRun(seed);
+  const log = [];
+  while (!run.st.over && log.length < 400) {
+    if (run.st.moves <= 0) {
+      const k = Math.floor(Math.random() * (run.st.strikes + 3));
+      const strikes = Array.from({ length: Math.min(k, 5) }, () => Math.floor(Math.random() * 15000));
+      log.push(E.encodeNight(strikes));
+      E.runNight(run, strikes);
+      continue;
+    }
+    const moves = E.listMoves(run.G);
+    const m = moves[Math.floor(Math.random() * moves.length)];
+    log.push(E.encodeMove(m[0], m[1]));
+    E.playMove(run, m[0], m[1]);
+  }
+  const chk = E.replay(seed, log);
+  if (!chk.ok || chk.st.score !== run.st.score) throw new Error(`JS replay mismatch on chaos game ${i}`);
+  games.push({ seed, actions: E.encodeBinary(log), score: run.st.score, stage: run.st.stageNo, bossesDown: run.st.bossesDown, over: run.st.over, n: log.length });
+}
+// three different finished runs on one Daily Op seed, for the ladder tests
+const DAY = 20408;
+const daily = ['easy', 'normal', 'hard'].map((lvl) => {
+  const seed = E.dailySeed(DAY);
+  const R = makeRival(seed, lvl);
+  while (!R.finished) { if (R.phase === 'night') { R.night.t = R.night.end; R.update(0); } else { R.timer = 0; R.update(0); } }
+  return { seed, actions: E.encodeBinary(R.log), score: R.st.score, half: E.encodeBinary(R.log.slice(0, 20)) };
+});
+fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games, day: DAY, daily }));
 console.log(`wrote ${games.length} games; actions ${Math.min(...games.map((g) => g.n))}..${Math.max(...games.map((g) => g.n))}; bytes up to ${Math.max(...games.map((g) => (g.actions.length - 2) / 2))}`);

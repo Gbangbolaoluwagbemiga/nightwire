@@ -613,7 +613,7 @@ ui.mute.classList.toggle('off', isMuted());
 ui.mute.addEventListener('click', () => { unlockAudio(); ui.mute.classList.toggle('off', toggleMute()); });
 
 // ================================================================ flow
-const todaySeed = () => E.seedFrom(`nightwire-daily-${new Date().toISOString().slice(0, 10)}`);
+const todaySeed = () => E.dailySeed(E.dayNumber());
 function newGame(mode = MODE) {
   MODE = { ...mode, seed: mode.seed || E.randomSeed() };
   RUN = E.newRun(MODE.seed, mkGem);
