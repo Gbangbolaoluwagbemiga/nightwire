@@ -661,7 +661,7 @@ async function renderMachineTab(keepStatus = false) {
   if (acct) {
     try {
       const ids = await C.machinesOf(acct);
-      $('machList').innerHTML = ids.length ? ids.map((id) => `<li><span class="rk">#${id}</span><span class="rm" style="text-align:left">Your circuit on the Nightwire Armory<br><a href="${C.processorUrl(DEPLOY_ARMORY(), id)}" target="_blank" rel="noopener">view on X Layer</a></span></li>`).join('') : '';
+      $('machList').innerHTML = ids.length ? ids.map((id) => `<li><span class="rk">#${id}</span><span class="rm" style="text-align:left">Your circuit on TapeOut, X Layer<br><a href="${C.processorUrl(DEPLOY_ARMORY(), id)}" target="_blank" rel="noopener">view on X Layer</a></span></li>`).join('') : '';
     } catch { /* ignore */ }
   }
 }
