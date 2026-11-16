@@ -59,12 +59,9 @@
 
     <div id="title" class="screen show">
       <div class="logo"><div class="mark"><i></i><i></i><i></i></div><h1>NIGHTWIRE</h1></div>
-      <p class="tag">Match munitions. Arm the base.<br>Hold the line.</p>
-      <ol class="how">
-        <li><b>Match 3+</b> bullets, shells, missiles, armour or wrenches</li>
-        <li>Each one <b>arms a weapon</b>. Stack them to upgrade: MG → Gatling → CIWS</li>
-        <li>Moves run out, <b>the war machine attacks</b>. Big combos earn <b>airstrikes</b>.</li>
-      </ol>
+      <p class="tag">Build weapons by day.<br>Survive the war machine by night.</p>
+      <div class="callrow"><span class="lbl">CALLSIGN</span><button class="callbtn" id="callBtn"><span id="callTxt">Set your callsign</span><svg viewBox="0 0 24 24"><path d="M4 17.3V20h2.7L17.8 8.9l-2.7-2.7zM20.7 6a1 1 0 0 0 0-1.4l-1.3-1.3a1 1 0 0 0-1.4 0l-1.1 1.1 2.7 2.7z"/></svg></button></div>
+      <button class="howbtn" id="howBtn"><b>How to play</b><span>It's a war game, not a puzzle game. 60 seconds.</span></button>
       <div class="picker">
         <div class="duelcard" id="duelCard"><b>Duel:</b> a friend scored <b id="duelScore">0</b> on this exact battlefield. Beat it.</div>
         <div class="seg" id="modeSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily Op</button><button data-m="raid">Raid</button></div>
@@ -118,6 +115,13 @@
         <div class="row2"><button class="ghostbtn" id="chStep">Step one beat</button><button class="ghostbtn" id="chReset">Clear memory</button></div>
         <p class="sh-sub" id="chNote">Tap an input to flip it. Green = 1. Yellow squares are LATCHes: the chip's memory between beats. This is the exact netlist the boss runs on X Layer.</p>
       </div>
+      <div id="nameSheet">
+        <div class="sh-title">Your callsign</div>
+        <p class="sh-sub">How you appear on the leaderboards. Changing it updates all your earlier entries too.</p>
+        <label class="fld"><span>Callsign (up to 16 letters, numbers, - _ .)</span><input id="nameInput" maxlength="16" placeholder="e.g. Ghost-7" autocomplete="off" spellcheck="false"></label>
+        <button class="cta" id="nameSave">Save</button>
+        <div class="chainst" id="nameSt"></div>
+      </div>
       <div id="inboxSheet">
         <div class="sh-title">Challenges for you</div>
         <label class="fld"><span>Your TapeOut circuit</span><input id="ibName" placeholder="e.g. 7.2.231" autocomplete="off" spellcheck="false"></label>
@@ -146,6 +150,71 @@
       <div class="chainst" id="fgSt"></div>
       <div class="fg-row"><span class="lbl">COMMUNITY WAR MACHINES</span><ol class="ranklist" id="fgList"></ol></div>
       <button class="ghostbtn" id="fgBack">Back</button>
+    </div>
+
+    <div id="howto" class="screen howto">
+      <div class="hw-top"><span class="lbl" id="hwStep">1 / 7</span><button class="link" id="hwSkip">Skip</button></div>
+      <div class="hw-track" id="hwTrack">
+        <section class="hw-card">
+          <div class="hw-kicker">NOT A PUZZLE GAME</div>
+          <h2>Build an arsenal by day. Survive the war machine by night.</h2>
+          <div class="hw-flow"><div><canvas data-art="board"></canvas><span>Day: 14 moves to match munitions</span></div><i>→</i><div><canvas data-art="turrets"></canvas><span>They arm your turrets</span></div><i>→</i><div><canvas data-art="boss"></canvas><span>Night: the battle</span></div></div>
+          <p>Matching isn't the goal: it's how you <b>build weapons</b>. When your moves run out, a war machine attacks your base and everything you built fires back.</p>
+        </section>
+        <section class="hw-card">
+          <div class="hw-kicker">EVERY MATCH ARMS A WEAPON</div>
+          <h2>Five munitions, five jobs</h2>
+          <ul class="hw-list" id="hwMunitions"></ul>
+          <p>Stack one kind to upgrade it: <b>5 shots</b> reaches tier 2, <b>10</b> reaches tier 3 (M2 MG → Gatling → CIWS). Chains multiply what you collect.</p>
+        </section>
+        <section class="hw-card">
+          <div class="hw-kicker">COMBOS CALL IN THE AIR FORCE</div>
+          <h2>Bigger matches, bigger weapons</h2>
+          <ul class="hw-list">
+            <li><b class="hw-tag">MATCH 4</b><span><b>Jet strike</b>: a fighter strafes the whole row or column.</span></li>
+            <li><b class="hw-tag">L or T</b><span><b>Grenade</b>: clears the 3×3 around it.</span></li>
+            <li><b class="hw-tag">MATCH 5</b><span><b>Airstrike beacon</b>: swap it with any munition and a bomber hits every one of that kind. Also earns an airstrike.</span></li>
+            <li><b class="hw-tag">CHAIN 4+</b><span>Falling munitions keep matching: <b>+1 airstrike</b>. You can hold 9.</span></li>
+          </ul>
+        </section>
+        <section class="hw-card">
+          <div class="hw-kicker">NIGHT: THE BATTLE</div>
+          <h2>Your arsenal fires on its own. You call the airstrikes.</h2>
+          <ul class="hw-list">
+            <li><b class="hw-tag blue">SHIELD</b><span>Armour you matched goes up at nightfall and stays until it's knocked down.</span></li>
+            <li><b class="hw-tag green">REPAIR</b><span>Wrenches repair the base when the battle starts.</span></li>
+            <li><b class="hw-tag gold">AIRSTRIKE</b><span>Tap <b>CALL AIRSTRIKE</b> during the battle. Don't save them until it's too late.</span></li>
+            <li><b class="hw-tag red">BASE</b><span>Your base only falls in a night battle. Watch the bar under the turrets.</span></li>
+          </ul>
+          <p>Destroy it: next stage, base repaired. If it survives your arsenal it unleashes its <b>signature weapon</b>, then holds the sky and shells you every 4 moves until you finish it.</p>
+        </section>
+        <section class="hw-card">
+          <div class="hw-kicker">THE WAR MACHINES THINK WITH REAL CHIPS</div>
+          <h2>Every boss brain is a circuit</h2>
+          <canvas data-art="chip" class="hw-wide"></canvas>
+          <p>Each war machine decides every attack with a <b>NAND/LATCH chip</b> (a TapeOut circuit on X Layer): Barrage, Focus Fire, EMP or Field Repair. LATCHes give it memory, so each one has a personality. <b>Tap a boss's health bar</b> to watch its brain think.</p>
+        </section>
+        <section class="hw-card">
+          <div class="hw-kicker">WAYS TO PLAY</div>
+          <h2>Pick your war</h2>
+          <ul class="hw-list">
+            <li><b class="hw-tag">SOLO</b><span>Hold the line as long as you can. Eight war machines, then they come back stronger.</span></li>
+            <li><b class="hw-tag">VS AI</b><span>Same battlefield as an AI commander, live beside you. Hard brings veteran rules.</span></li>
+            <li><b class="hw-tag">DAILY OP</b><span>One battlefield for everyone, every day.</span></li>
+            <li><b class="hw-tag red">RAID</b><span>OMEGA, the weekly world boss. Everyone's damage comes off one health pool.</span></li>
+            <li><b class="hw-tag">FORGE</b><span>Design your own war machine's brain and let others fight it.</span></li>
+            <li><b class="hw-tag">DUELS</b><span>Send a friend your exact battlefield; your run plays beside them as a ghost.</span></li>
+          </ul>
+        </section>
+        <section class="hw-card">
+          <div class="hw-kicker">FAIR BY DESIGN</div>
+          <h2>Nobody can fake a score</h2>
+          <p>Every run is <b>replayed move by move</b> before it reaches a leaderboard, by our server and, for on-chain runs, by X Layer itself.</p>
+          <label class="fld"><span>Choose your callsign (how you appear on the boards)</span><input id="hwName" maxlength="16" placeholder="e.g. Ghost-7" autocomplete="off" spellcheck="false"></label>
+        </section>
+      </div>
+      <div class="hw-dots" id="hwDots"></div>
+      <div class="row2"><button class="ghostbtn" id="hwPrev">Back</button><button class="cta" id="hwNext">Next</button></div>
     </div>
 
     <div id="ranks" class="screen">

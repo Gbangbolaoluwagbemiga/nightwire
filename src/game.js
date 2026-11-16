@@ -600,6 +600,73 @@ cv.addEventListener('pointerup', () => {
   if (S.sel) sfx.select();
 });
 cv.addEventListener('pointercancel', () => { S.press = null; });
+// ---------------------------------------------------------------- How to play
+const HW_CARDS = 7;
+let hwChip = null;
+function hwArt() { // the guide's pictures, drawn with the game's own sprites
+  document.querySelectorAll('#howto canvas[data-art]').forEach((c) => {
+    const r = c.getBoundingClientRect();
+    if (!r.width) return;
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+    const g = c.getContext('2d'), w = c.width, h = c.height;
+    g.clearRect(0, 0, w, h);
+    const art = c.dataset.art;
+    if (art === 'board') {
+      const n = 4, cs = w / n;
+      const cols = [0, 0, 0, 3, 1, 2, 2, 4, 3, 1, 4, 2, 4, 3, 1, 0];
+      cols.forEach((col, i) => g.drawImage(SPR.gem[col], (i % n) * cs, Math.floor(i / n) * cs, cs, cs));
+      g.strokeStyle = '#FFD23F'; g.lineWidth = w * 0.025; g.strokeRect(w * 0.02, h * 0.02, w * 0.71, h * 0.23);
+    } else if (art === 'turrets') {
+      [0, 1, 2].forEach((k) => g.drawImage(SPR.icon[k], w * (0.05 + k * 0.31), h * 0.3, w * 0.28, w * 0.28));
+      g.fillStyle = '#3DDC97'; g.font = `800 ${w * 0.12}px "JetBrains Mono", monospace`; g.textAlign = 'center'; g.fillText('x12', w * 0.5, h * 0.85);
+    } else if (art === 'boss') {
+      const keep = ctx; ctx = g;
+      ctx.translate(w / 2, h / 2); ctx.scale(w / 240, w / 240);
+      const eye = bossShape(0, S.time, false, '#E0703F', 0);
+      ctx.fillStyle = '#ff5050'; ctx.beginPath(); ctx.arc(eye.ex, eye.ey, eye.er * 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx = keep;
+    } else if (art === 'chip') {
+      if (!hwChip) hwChip = makeInspector({ querySelector: () => c }, { onTap: () => {}, onInfo: () => {} });
+      hwChip.open(0);
+    }
+  });
+}
+function hwGo(i) {
+  const t = $('hwTrack');
+  t.scrollTo({ left: i * t.clientWidth, behavior: 'smooth' });
+}
+function hwSync() {
+  const t = $('hwTrack'), i = Math.round(t.scrollLeft / Math.max(1, t.clientWidth));
+  $('hwStep').textContent = `${i + 1} / ${HW_CARDS}`;
+  $('hwDots').innerHTML = Array.from({ length: HW_CARDS }, (_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('');
+  $('hwPrev').style.visibility = i === 0 ? 'hidden' : 'visible';
+  $('hwNext').textContent = i === HW_CARDS - 1 ? 'Start playing' : 'Next';
+  return i;
+}
+function openHowto() {
+  ui.title.classList.remove('show');
+  $('howto').classList.add('show');
+  $('hwName').value = callsign;
+  if (!$('hwMunitions').children.length) {
+    $('hwMunitions').innerHTML = GEMS.map((gm, c) => `<li><img alt="" src="${SPR.gem[c].toDataURL()}"><span><b style="color:${gm.color}">${gm.item}</b> → ${gm.tiers.join(' → ')}<br>${['Machine-gun bursts', 'Artillery shells, then MLRS rockets', 'Guided missile salvos', 'Shield for the base', 'Repairs for the base'][c]}</span></li>`).join('');
+  }
+  $('hwTrack').scrollLeft = 0;
+  hwSync();
+  requestAnimationFrame(hwArt);
+}
+function closeHowto() {
+  if ($('hwName').value.trim()) setCallsign($('hwName').value, true);
+  try { localStorage.setItem('nw-howto', '1'); } catch { /* ignore */ }
+  $('howto').classList.remove('show');
+  ui.title.classList.add('show');
+  syncCallsign();
+}
+$('howBtn').addEventListener('click', () => { unlockAudio(); sfx.select(); openHowto(); });
+$('hwSkip').addEventListener('click', closeHowto);
+$('hwPrev').addEventListener('click', () => hwGo(Math.max(0, hwSync() - 1)));
+$('hwNext').addEventListener('click', () => { const i = hwSync(); if (i >= HW_CARDS - 1) closeHowto(); else hwGo(i + 1); });
+$('hwTrack').addEventListener('scroll', () => { hwSync(); }, { passive: true });
+
 // ---------------------------------------------------------------- Boss Forge
 let forgeDesign = { ...F.DEFAULT_DESIGN };
 try { forgeDesign = F.normalize(JSON.parse(localStorage.getItem('nw-forge') || 'null') || F.DEFAULT_DESIGN); } catch { /* default */ }
@@ -769,7 +836,9 @@ $('inboxLink').hidden = !C.hasWallet() && !new URLSearchParams(location.search).
 $('chainBtn').addEventListener('click', () => { unlockAudio(); submitToChain(); });
 document.querySelector('#rankSeg button[data-m=chain]').hidden = !C.enabled();
 document.querySelector('#rankSeg button[data-m=global]').hidden = !API.enabled();
-$('callsign').addEventListener('change', (e) => { callsign = e.target.value.replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16); e.target.value = callsign; try { localStorage.setItem('nw-name', callsign); } catch { /* ignore */ } });
+$('callsign').addEventListener('change', (e) => setCallsign(e.target.value));
+$('callBtn').addEventListener('click', () => { unlockAudio(); openSheet('name'); $('nameInput').value = callsign; $('nameSt').textContent = ''; setTimeout(() => $('nameInput').focus(), 300); });
+$('nameSave').addEventListener('click', async () => { const v = cleanCall($('nameInput').value); if (!v) { $('nameSt').textContent = 'Use letters, numbers, spaces, - _ or .'; return; } await setCallsign(v); sfx.upgrade(); closeSheet(); });
 $('ranksBtn').addEventListener('click', () => { sfx.select(); showRanks(pick.kind === 'duel' ? 'solo' : pick.kind); });
 document.querySelectorAll('#rankSeg button').forEach((b) => b.addEventListener('click', () => showRanks(b.dataset.m)));
 $('ranksBack').addEventListener('click', () => { ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); });
@@ -1187,6 +1256,24 @@ function openSheet(kind) {
   $('tsFrom').value = myCircuit;
   $('ibName').value = myCircuit;
 }
+// ---------------------------------------------------------------- callsign
+const cleanCall = (v) => String(v || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16);
+function syncCallsign() {
+  $('callTxt').textContent = callsign || 'Set your callsign';
+  $('callBtn').classList.toggle('unset', !callsign);
+  if ($('callsign')) $('callsign').value = callsign;
+}
+async function setCallsign(v, quiet = false) {
+  const name = cleanCall(v);
+  if (!name || name === callsign) { syncCallsign(); return; }
+  callsign = name;
+  try { localStorage.setItem('nw-name', callsign); } catch { /* ignore */ }
+  syncCallsign();
+  if (API.enabled()) {
+    try { const r = await API.rename(callsign); if (!quiet && r.updated) toast(`You are <b>${callsign}</b> on every board now`, false, 2400); } catch { /* offline: applied to your next runs */ }
+  }
+}
+
 function closeSheet() { $('sheet2').className = ''; $('sheetBg').classList.remove('show'); paused = false; }
 
 // ---------------------------------------------------------------- chip inspector
@@ -1346,9 +1433,15 @@ async function showGlobalRanks() {
   list.innerHTML = '<li class="empty">Loading the global board…</li>';
   try {
     const [d, s, a, r] = await Promise.all([API.board('daily'), API.board('solo'), API.board('ai'), API.raidState()]);
-    const rows = (xs) => (xs.length ? xs.slice(0, 5).map((r, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">${r.name.replace(/[<>&]/g, '')}<br>stage ${r.stage}${r.level ? ` · ${r.level}` : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No runs yet.</li>');
-    const raiders = r.top.length ? r.top.slice(0, 5).map((p, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(p.damage / 10)}</span><span class="rm">${p.name.replace(/[<>&]/g, '')}<br>${p.runs} run${p.runs > 1 ? 's' : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No raiders yet.</li>';
-    list.innerHTML = `<li class="sec"><span>OMEGA RAID · ${r.down ? 'DOWN' : `${fmt(Math.max(0, r.poolHp - r.dealt) / 10)} HP LEFT`}</span></li>${raiders}<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d.rows)}<li class="sec"><span>SOLO</span></li>${rows(s.rows)}<li class="sec"><span>VS AI</span></li>${rows(a.rows)}`;
+    const you = '<span class="you">YOU</span>';
+    const rows = (bd) => {
+      const xs = bd.rows;
+      let html = xs.length ? xs.slice(0, 5).map((r, i) => `<li class="${r.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">${r.name.replace(/[<>&]/g, '')}${r.me ? you : ''}<br>stage ${r.stage}${r.level ? ` · ${r.level}` : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No runs yet.</li>';
+      if (bd.mine && bd.mine.rank > 5) html += `<li class="me"><span class="rk">${bd.mine.rank}</span><span class="rs">${fmt(bd.mine.score)}</span><span class="rm">${(callsign || 'Anonymous').replace(/[<>&]/g, '')}${you}<br>stage ${bd.mine.stage} · of ${bd.players}</span><span class="rv ok">✓</span></li>`;
+      return html;
+    };
+    const raiders = r.top.length ? r.top.slice(0, 5).map((p, i) => `<li class="${p.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="rs">${fmt(p.damage / 10)}</span><span class="rm">${p.name.replace(/[<>&]/g, '')}${p.me ? '<span class="you">YOU</span>' : ''}<br>${p.runs} run${p.runs > 1 ? 's' : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No raiders yet.</li>';
+    list.innerHTML = `<li class="sec"><span>OMEGA RAID · ${r.down ? 'DOWN' : `${fmt(Math.max(0, r.poolHp - r.dealt) / 10)} HP LEFT`}</span></li>${raiders}<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d)}<li class="sec"><span>SOLO</span></li>${rows(s)}<li class="sec"><span>VS AI</span></li>${rows(a)}`;
   } catch (e) {
     list.innerHTML = `<li class="empty">Couldn't reach the global board (${String(e.message || e).slice(0, 60)}).</li>`;
   }
@@ -2193,7 +2286,7 @@ function drawWeapons() {
     const v = S.shown[i];
     let big, prog = null, val;
     if (i < 3) { val = S.phase === 'night' ? S.ammo[i] : Math.floor(v / 3); big = `x${val}`; prog = S.phase === 'night' ? null : (v % 3) / 3; }
-    else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield / 10) : Math.round(v * 2); big = `${val}`; }
+    else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield / 10) : Math.round(v * 2); big = S.phase === 'night' ? `${val}` : `+${val}`; } // by day: armour banked for nightfall
     else { val = Math.round(v); big = `+${val}`; }
     const tier = i < 3 && S.phase === 'night' ? S.wtier[i] : tierOf(i, i < 3 ? Math.floor(v / 3) : val);
     ctx.font = '800 7.5px "JetBrains Mono", monospace';
@@ -2402,6 +2495,10 @@ if (shortDuel && API.enabled()) { // short link: fetch it, then check it ourselv
     applyDuel(check.ok && check.st.over && check.st.score === d.score ? { seed: d.seed >>> 0, actions: d.actions, score: d.score, stage: d.stage, hard: !!d.hard } : { bad: true });
   }).catch(() => applyDuel({ bad: true }));
 }
+syncCallsign();
+let seenHowto = false;
+try { seenHowto = !!localStorage.getItem('nw-howto'); } catch { /* ignore */ }
+if (!seenHowto && !location.hash) setTimeout(openHowto, 400);
 RUN = E.newRun(E.randomSeed(), mkGem);
 G = RUN.G;
 S.boss = RUN.st.boss;
