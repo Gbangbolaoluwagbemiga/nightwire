@@ -950,7 +950,17 @@ $('playBtn').addEventListener('click', () => { unlockAudio(); newGame(modeFromPi
 $('againBtn').addEventListener('click', () => { unlockAudio(); newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
 $('menuBtn').addEventListener('click', () => { if (gameGuard) { gameGuard = false; dropOverlay(); } goMenu(); });
 $('quitResume').addEventListener('click', () => { closeSheet(); setTimeout(guardGame, 60); });
-$('quitLeave').addEventListener('click', () => { closeSheet(); setTimeout(() => { S.phase = 'over'; goMenu(); }, 60); });
+$('quitLeave').addEventListener('click', () => {
+  closeSheet();
+  setTimeout(() => { if (gameGuard) { gameGuard = false; dropOverlay(); } S.phase = 'over'; goMenu(); }, 80);
+});
+$('pauseBtn').addEventListener('click', () => { // the on-screen way out: same panel as the Back button
+  unlockAudio();
+  if (S.phase !== 'day' && S.phase !== 'night') return;
+  sfx.select();
+  paused = true;
+  openSheet('quit');
+});
 $('duelBtn').addEventListener('click', () => { unlockAudio(); openSheet('duel'); });
 $('shareLinkBtn').addEventListener('click', () => { closeSheet(); shareDuel(); });
 $('sheetBg').addEventListener('click', closeSheet);
@@ -1002,6 +1012,7 @@ function newGame(mode = MODE) {
   ui.over.classList.remove('show');
   ui.ranks.classList.remove('show');
   guardGame();
+  stage.classList.add('playing');
   startDay(true);
 }
 function startDay(first = false) {
@@ -1309,6 +1320,7 @@ let lastResult = null;
 function gameOver() {
   if (S.phase === 'over') return;
   S.phase = 'over';
+  stage.classList.remove('playing');
   S.slow = 0.3;
   ui.strikeBtn.classList.remove('show');
   sfx.over();
@@ -1405,6 +1417,7 @@ function onGameBack() {
   goMenu();
 }
 function goMenu() {
+  stage.classList.remove('playing');
   ui.over.classList.remove('show');
   ui.title.classList.add('show');
   RIVAL = null;

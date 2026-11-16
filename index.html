@@ -29,6 +29,7 @@
         <span id="strikeTxt">0</span>
       </div>
       <div class="score"><span class="lbl">SCORE</span><span id="scoreTxt">0</span></div>
+      <button id="pauseBtn" class="iconbtn" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
       <button id="muteBtn" class="iconbtn" aria-label="Sound">
         <svg id="icoSnd" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="w" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
       </button>
@@ -137,8 +138,8 @@
         <div class="chainst" id="shopSt"></div>
       </div>
       <div id="quitSheet">
-        <div class="sh-title">Leave this battle?</div>
-        <p class="sh-sub">The game is paused. If you leave now this run ends and isn't scored.</p>
+        <div class="sh-title">Paused</div>
+        <p class="sh-sub">Resume the battle, or quit to the menu. If you quit, this run ends and isn't scored.</p>
         <button class="cta" id="quitResume">Resume the battle</button>
         <div class="row2"><button class="ghostbtn" id="quitLeave">Quit to menu</button></div>
       </div>
