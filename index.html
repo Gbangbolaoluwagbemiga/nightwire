@@ -34,6 +34,16 @@
       </button>
     </div>
 
+    <div id="rival">
+      <div class="rv-head"><span id="rvName">AI</span><span id="rvStage">S1</span></div>
+      <canvas id="rivalCv"></canvas>
+      <div class="rv-score" id="rvScore">0</div>
+      <div class="rv-bar"><i id="rvBase"></i></div>
+      <div class="rv-status" id="rvStatus"></div>
+      <div class="rv-lead" id="rvLead"></div>
+      <div class="rv-pop" id="rvPop"></div>
+    </div>
+
     <div id="toast"></div>
     <div id="banner"><div class="b1" id="b1"></div><div class="b2" id="b2"></div></div>
 
@@ -55,20 +65,41 @@
         <li>Each one <b>arms a weapon</b>. Stack them to upgrade: MG → Gatling → CIWS</li>
         <li>Moves run out, <b>the war machine attacks</b>. Big combos earn <b>airstrikes</b>.</li>
       </ol>
+      <div class="picker">
+        <div class="duelcard" id="duelCard"><b>Duel:</b> a friend scored <b id="duelScore">0</b> on this exact battlefield. Beat it.</div>
+        <div class="seg" id="modeSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily Op</button></div>
+        <div class="seg lvls" id="lvlSeg"><button data-l="easy">Easy</button><button data-l="normal">Normal</button><button data-l="hard">Hard</button></div>
+        <p class="modehint" id="modeHint"></p>
+      </div>
       <button class="cta big" id="playBtn">Play</button>
-      <div class="best">Best <span id="bestTxt">0</span></div>
+      <div class="best">Best <span id="bestTxt">0</span> · <button class="link" id="ranksBtn">Leaderboard</button></div>
     </div>
 
     <div id="over" class="screen">
-      <div class="ov-title">The base fell</div>
+      <div class="ov-title" id="ovTitle">The base fell</div>
       <div class="ov-day" id="ovDay">Stage 1</div>
       <div class="stats">
         <div><span class="lbl">SCORE</span><b id="ovScore">0</b></div>
         <div><span class="lbl">BOSSES</span><b id="ovKills">0</b></div>
         <div><span class="lbl">BEST</span><b id="ovBest">0</b></div>
       </div>
+      <div class="vs" id="ovVs">
+        <div class="vs-col"><span class="lbl">YOU</span><b id="vsYou">0</b><small id="vsYouS"></small></div>
+        <div class="vs-mid">VS</div>
+        <div class="vs-col"><span class="lbl" id="vsThemL">AI</span><b id="vsThem">0</b><small id="vsThemS"></small></div>
+      </div>
       <div class="newbest" id="ovNew">New best!</div>
+      <div class="verify" id="ovVerify"></div>
       <button class="cta big" id="againBtn">Play again</button>
+      <div class="row2"><button class="ghostbtn" id="duelBtn">Challenge a friend</button><button class="ghostbtn" id="menuBtn">Menu</button></div>
+    </div>
+
+    <div id="ranks" class="screen">
+      <div class="ov-title small">Leaderboard</div>
+      <div class="seg" id="rankSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily</button><button data-m="duel">Duels</button></div>
+      <ol class="ranklist" id="rankList"></ol>
+      <p class="ranknote">Runs on this device. ✓ means the score was re-checked by replaying every move from the seed.</p>
+      <button class="cta big" id="ranksBack">Back</button>
     </div>
   </div>
   <script type="module" src="src/game.js"></script>

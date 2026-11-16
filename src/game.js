@@ -1,13 +1,13 @@
 import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
+import * as E from './engine.js';
+import { makeRival, LEVELS } from './rival.js';
 
 // ================================================================ layout (logical units, portrait 390 x 860)
 const W = 390, H = 860;
-const N = 8, CELL = 45, BX = (W - N * CELL) / 2, BY = 404;
+const { N, CORE, MOVES_PER_DAY, TIER_MUL, tierOf, BOSSES } = E;
+const CELL = 45, BX = (W - N * CELL) / 2, BY = 404;
 const SKY_TOP = 60, BASE_Y = 296;
 const WBAR_Y = 336, WBAR_H = 54;
-const MOVES_PER_DAY = 14;
-const CORE = 5; // airstrike beacon
-const MAX_STRIKES = 5;
 
 // munitions on the board -> the weapon they arm (3 upgrade tiers each)
 const GEMS = [
@@ -17,16 +17,7 @@ const GEMS = [
   { item: 'Armour', color: '#3FC8FF', dark: '#032F4C', tiers: ['SANDBAGS', 'ARMOUR', 'IRON DOME'] },
   { item: 'Wrenches', color: '#3DDC97', dark: '#03402A', tiers: ['MEDIC', 'ENGINEERS', 'FIELD HQ'] },
 ];
-const TIER_MUL = [1, 1.25, 1.6];
-// tier thresholds: shots for guns, points for shield/repair
-const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 3 ? (v >= 40 ? 2 : v >= 20 ? 1 : 0) : (v >= 16 ? 2 : v >= 8 ? 1 : 0));
 const TURRETS = [{ x: 64, y: BASE_Y - 14 }, { x: 195, y: BASE_Y - 18 }, { x: 326, y: BASE_Y - 14 }];
-const BOSSES = [
-  { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0 },
-  { name: 'STORMWING', role: 'attack gunship', color: '#9B8CFF', type: 1 },
-  { name: 'DREADNOUGHT', role: 'armoured airship', color: '#45B4E8', type: 2 },
-  { name: 'HIVE CARRIER', role: 'drone carrier', color: '#FF4FD8', type: 3 },
-];
 const cellX = (c) => BX + c * CELL + CELL / 2;
 const cellY = (r) => BY + r * CELL + CELL / 2;
 const wbarX = (i) => 8 + i * 75;
@@ -38,7 +29,7 @@ const bgDay = $('bgDay'), bgNight = $('bgNight');
 const ui = {
   stage: $('dayTxt'), score: $('scoreTxt'), moves: $('movesTxt'), mute: $('muteBtn'), toast: $('toast'),
   banner: $('banner'), b1: $('b1'), b2: $('b2'), status: $('statusBox'), statusLbl: $('statusLbl'), statusTxt: $('statusTxt'),
-  title: $('title'), over: $('over'), best: $('bestTxt'), strikeBadge: $('strikeBadge'), strikeTxt: $('strikeTxt'),
+  title: $('title'), over: $('over'), ranks: $('ranks'), best: $('bestTxt'), strikeBadge: $('strikeBadge'), strikeTxt: $('strikeTxt'),
   strikeBtn: $('strikeBtn'), strikeBtnN: $('strikeBtnN'),
 };
 
@@ -351,6 +342,7 @@ function resize() {
   cv.width = Math.ceil(W * k);
   cv.height = Math.ceil(H * k);
   buildSprites();
+  if (typeof rv !== 'undefined') { rv.cv.width = rv.cv.height = Math.ceil(64 * k); if (RIVAL) RIVAL.dirty = true; }
   drawBackground(bgDay, false);
   drawBackground(bgNight, true);
 }
@@ -401,9 +393,7 @@ function bumpMoves() {
   void ui.moves.offsetWidth;
   ui.moves.classList.add('bump');
 }
-function addStrike(reason, x, y) {
-  if (S.strikes >= MAX_STRIKES) return;
-  S.strikes++;
+function strikeEarned(reason, x, y) {
   text(x, y, `+1 AIRSTRIKE`, '#FFD23F', 13, 1.1, 40);
   ui.strikeBadge.classList.remove('bump');
   void ui.strikeBadge.offsetWidth;
@@ -412,81 +402,73 @@ function addStrike(reason, x, y) {
   if (S.strikes === 1 && reason) toast(`${reason} earned an <b>airstrike</b>. Call it in during the attack!`, false, 3400);
 }
 
-// ================================================================ board
+// ================================================================ board (the rules live in engine.js; this file animates them)
 function gem(c, x, y, sp = null) { return { c, sp, x, y, vy: 0, s: 1, sv: 0, sq: 0, a: 1, pop: -1, sw: null }; }
-const rnd5 = () => Math.floor(Math.random() * 5);
-function freshBoard() {
-  G = Array.from({ length: N }, () => new Array(N).fill(null));
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-    let col;
-    do { col = rnd5(); } while ((c >= 2 && G[r][c - 1].c === col && G[r][c - 2].c === col) || (r >= 2 && G[r - 1][c].c === col && G[r - 2][c].c === col));
-    G[r][c] = gem(col, cellX(c), cellY(r) - 420 - (N - r) * 18 - c * 6);
-  }
-  if (!findMove()) freshBoard();
-}
-function findRuns() {
-  const runs = [];
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N;) {
-      const g = G[r][c];
-      if (!g || g.c === CORE) { c++; continue; }
-      let e = c + 1;
-      while (e < N && G[r][e] && G[r][e].c === g.c) e++;
-      if (e - c >= 3) runs.push({ dir: 'h', color: g.c, cells: Array.from({ length: e - c }, (_, j) => [r, c + j]) });
-      c = e;
+const mkGem = (col, r, c, spawn) => (spawn < 0 ? gem(col, cellX(c), cellY(r) - 420 - (N - r) * 18 - c * 6) : gem(col, cellX(c), BY - spawn * CELL - 6));
+let RUN = null; // { st: S, G, R, CR }: the engine's view of this game
+let LOG = []; // every action, so the score can be replayed and verified
+let MODE = { kind: 'solo', level: null, seed: 0, ghost: null };
+let RIVAL = null;
+let NIGHT = null;
+const findMove = () => E.findMove(G);
+
+// the engine calls these as things happen, so the board can show them
+let popN = 0, popX = 0, popY = 0;
+const FX = {
+  strafe(h, r, c) { // fighter jet strafing run
+    S.fx.push({ type: 'strafe', h, i: h ? r : c, t: 0, d: 0.42 });
+    for (let i = 0; i < N; i++) S.fx.push({ type: 'boom', x: h ? cellX(i) : cellX(c), y: h ? cellY(r) : cellY(i), r: 0, max: 26, t: -(i / N) * 0.3, d: 0.3 });
+    sfx.jet();
+  },
+  grenade(r, c) {
+    S.fx.push({ type: 'boom', x: cellX(c), y: cellY(r), r: 0, max: CELL * 2.4, t: 0, d: 0.5 });
+    S.fx.push({ type: 'ring', x: cellX(c), y: cellY(r), r: 0, max: CELL * 2, t: 0, d: 0.4, color: '#ffb347' });
+    spark(cellX(c), cellY(r), '#ffb347', 20, 220, 3, 0.5);
+    S.shake = Math.max(S.shake, 9);
+    sfx.bomb();
+  },
+  pop(g, mul) {
+    g.pop = 0;
+    popN++; popX += g.x; popY += g.y;
+    if (g.c < CORE) {
+      orb(g.x, g.y, GEMS[g.c].color, g.c, mul, Math.random() * 0.08);
+      spark(g.x, g.y, GEMS[g.c].color, lowPower ? 3 : 6, 120, 2.6, 0.4);
     }
+  },
+  create(g, sp) {
+    g.s = 0.3;
+    g.sv = 14;
+    spark(g.x, g.y, '#ffffff', 14, 160, 2.4, 0.5);
+    text(g.x, g.y - 20, sp === 'core' ? 'AIRSTRIKE BEACON' : sp === 'bomb' ? 'GRENADE' : 'JET STRIKE', '#ffffff', 11);
+  },
+  strike(reason, g) { strikeEarned(reason, g ? g.x : 195, g ? g.y - 36 : BY + 150); },
+  chain(n) {
+    banner(n >= 5 ? 'DEVASTATING!' : n >= 4 ? 'OUTSTANDING!' : 'NICE CHAIN!', `${n}x chain`);
+    sfx.combo(n);
+    buzz(25);
+  },
+  shuffle() {
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { G[r][c].s = 0.4; G[r][c].sv = 6; }
+    toast('No moves left, <b>reshuffling supplies</b>');
+  },
+};
+
+function clearAndAnimate(clear, creates) {
+  popN = popX = popY = 0;
+  E.applyClear(S, G, clear, creates, FX);
+  if (popN) {
+    sfx.match(S.cascade - 1);
+    if (S.cascade >= 2) text(popX / popN, popY / popN, `x${S.cascade}`, '#FFD23F', 20 + Math.min(16, S.cascade * 3), 1.0, 30);
+    if (S.tut === 0) { S.tut = 1; setTimeout(() => toast('Each munition <b>arms a weapon</b>. Stack one kind to upgrade it!', false, 3600), 300); }
   }
-  for (let c = 0; c < N; c++) {
-    for (let r = 0; r < N;) {
-      const g = G[r][c];
-      if (!g || g.c === CORE) { r++; continue; }
-      let e = r + 1;
-      while (e < N && G[e][c] && G[e][c].c === g.c) e++;
-      if (e - r >= 3) runs.push({ dir: 'v', color: g.c, cells: Array.from({ length: e - r }, (_, j) => [r + j, c]) });
-      r = e;
-    }
-  }
-  return runs;
-}
-function swapGrid(a, b) { const t = G[a[0]][a[1]]; G[a[0]][a[1]] = G[b[0]][b[1]]; G[b[0]][b[1]] = t; }
-function makesMatchAt(r, c) {
-  const g = G[r][c];
-  if (!g || g.c === CORE) return false;
-  const same = (y, x) => y >= 0 && y < N && x >= 0 && x < N && G[y][x] && G[y][x].c === g.c;
-  let h = 1, v = 1;
-  for (let x = c - 1; same(r, x); x--) h++;
-  for (let x = c + 1; same(r, x); x++) h++;
-  for (let y = r - 1; same(y, c); y--) v++;
-  for (let y = r + 1; same(y, c); y++) v++;
-  return h >= 3 || v >= 3;
-}
-function findMove() {
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-    for (const [dr, dc] of [[0, 1], [1, 0]]) {
-      const r2 = r + dr, c2 = c + dc;
-      if (r2 >= N || c2 >= N) continue;
-      if (G[r][c].c === CORE || G[r2][c2].c === CORE) return [[r, c], [r2, c2]];
-      swapGrid([r, c], [r2, c2]);
-      const ok = makesMatchAt(r, c) || makesMatchAt(r2, c2);
-      swapGrid([r, c], [r2, c2]);
-      if (ok) return [[r, c], [r2, c2]];
-    }
-  }
-  return null;
-}
-function shuffleBoard() {
-  for (let tries = 0; tries < 60; tries++) {
-    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (G[r][c].c !== CORE && !G[r][c].sp) G[r][c].c = rnd5();
-    if (!findRuns().length && findMove()) break;
-  }
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { G[r][c].s = 0.4; G[r][c].sv = 6; }
-  toast('No moves left, <b>reshuffling supplies</b>');
+  S.popT = 0.2;
+  S.bstate = 'pop';
 }
 
 function startSwap(a, b) {
   const ga = G[a[0]][a[1]], gb = G[b[0]][b[1]];
   if (!ga || !gb) return;
-  swapGrid(a, b);
+  E.swapGrid(G, a, b);
   ga.sw = { fx: ga.x, fy: ga.y, tx: cellX(b[1]), ty: cellY(b[0]), t: 0 };
   gb.sw = { fx: gb.x, fy: gb.y, tx: cellX(a[1]), ty: cellY(a[0]), t: 0 };
   S.swap = { a, b, back: false };
@@ -501,29 +483,9 @@ function afterSwap() {
   const { a, b, back } = S.swap;
   if (back) { S.swap = null; S.bstate = 'idle'; return; }
   const ga = G[b[0]][b[1]], gb = G[a[0]][a[1]];
-  if (ga.c === CORE || gb.c === CORE) { // airstrike beacon: a bomber hits every item of that kind
-    useMove();
-    const clear = new Set();
-    const core = ga.c === CORE ? b : a, other = ga.c === CORE ? gb : ga;
-    if (ga.c === CORE && gb.c === CORE) for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) clear.add(r * N + c);
-    else {
-      clear.add(core[0] * N + core[1]);
-      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (G[r][c].c === other.c) clear.add(r * N + c);
-    }
-    S.fx.push({ type: 'bomber', t: 0, d: 0.75 });
-    let j = 0;
-    for (const key of clear) { const r = Math.floor(key / N), c = key % N; S.fx.push({ type: 'boom', x: cellX(c), y: cellY(r), r: 0, max: 34, t: -(0.05 + (c / N) * 0.35 + (j++ % 3) * 0.02), d: 0.35 }); }
-    S.shake = 12;
-    sfx.jet();
-    setTimeout(() => sfx.bomb(), 220);
-    buzz(40);
-    S.cascade = 1;
-    clearCells(clear, new Map());
-    return;
-  }
-  const runs = findRuns();
-  if (!runs.length) {
-    swapGrid(a, b);
+  const j = E.judgeSwap(G, a, b);
+  if (!j) {
+    E.swapGrid(G, a, b);
     ga.sw = { fx: ga.x, fy: ga.y, tx: cellX(a[1]), ty: cellY(a[0]), t: 0 };
     gb.sw = { fx: gb.x, fy: gb.y, tx: cellX(b[1]), ty: cellY(b[0]), t: 0 };
     S.swap.back = true;
@@ -531,127 +493,31 @@ function afterSwap() {
     buzz(15);
     return;
   }
+  LOG.push(E.encodeMove(a, b));
   useMove();
   S.cascade = 1;
-  resolveRuns(runs, [a, b]);
+  if (j.core) { // airstrike beacon: a bomber hits every item of that kind
+    S.fx.push({ type: 'bomber', t: 0, d: 0.75 });
+    let n = 0;
+    for (const key of j.clear) { const r = Math.floor(key / N), c = key % N; S.fx.push({ type: 'boom', x: cellX(c), y: cellY(r), r: 0, max: 34, t: -(0.05 + (c / N) * 0.35 + (n++ % 3) * 0.02), d: 0.35 }); }
+    S.shake = 12;
+    sfx.jet();
+    setTimeout(() => sfx.bomb(), 220);
+    buzz(40);
+  }
+  clearAndAnimate(j.clear, j.creates);
 }
 
 function useMove() {
-  S.moves--;
+  const shot = E.useMove(S);
   bumpMoves();
   syncHud();
-  const b = S.boss;
-  if (b && b.present && S.moves > 0 && (MOVES_PER_DAY - S.moves) % 4 === 0) bossFire({ dmg: 3 + 2 * S.stageNo + b.rage });
-  else if (S.moves === 3) toast(`${b && b.present ? 'Next assault' : 'Enemy arrives'} in <b>3 moves</b>!`, true);
-}
-
-function resolveRuns(runs, swapped) {
-  const clear = new Set();
-  const mem = new Map();
-  for (const run of runs) for (const [r, c] of run.cells) {
-    const key = r * N + c;
-    clear.add(key);
-    const m = mem.get(key) || { h: false, v: false };
-    m[run.dir] = true;
-    mem.set(key, m);
-  }
-  const creates = new Map();
-  const isSwapped = (r, c) => swapped && swapped.some(([sr, sc]) => sr === r && sc === c);
-  for (const run of runs) {
-    const inter = run.cells.find(([r, c]) => { const m = mem.get(r * N + c); return m.h && m.v; });
-    let sp = null, at = null;
-    if (inter) { sp = 'bomb'; at = inter; }
-    else if (run.cells.length >= 5) sp = 'core';
-    else if (run.cells.length === 4) sp = run.dir === 'h' ? 'row' : 'col';
-    if (!sp) continue;
-    if (!at) {
-      const cand = run.cells.filter(([r, c]) => !G[r][c].sp);
-      at = cand.find(([r, c]) => isSwapped(r, c)) || cand[Math.floor(cand.length / 2)];
-    }
-    if (!at) continue;
-    const key = at[0] * N + at[1];
-    if (!creates.has(key)) creates.set(key, { sp, color: run.color });
-  }
-  for (const key of creates.keys()) clear.delete(key);
-  clearCells(clear, creates);
-}
-
-function clearCells(clear, creates) {
-  const queue = [...clear];
-  const fired = new Set();
-  while (queue.length) {
-    const key = queue.pop();
-    const r = Math.floor(key / N), c = key % N, g = G[r][c];
-    if (!g || !g.sp || fired.has(key)) continue;
-    fired.add(key);
-    const add = (y, x) => {
-      if (y < 0 || y >= N || x < 0 || x >= N) return;
-      const kk = y * N + x;
-      if (creates.has(kk) || clear.has(kk)) return;
-      clear.add(kk);
-      queue.push(kk);
-    };
-    if (g.sp === 'row' || g.sp === 'col') { // fighter jet strafing run
-      const h = g.sp === 'row';
-      for (let i = 0; i < N; i++) (h ? add(r, i) : add(i, c));
-      S.fx.push({ type: 'strafe', h, i: h ? r : c, t: 0, d: 0.42 });
-      for (let i = 0; i < N; i++) S.fx.push({ type: 'boom', x: h ? cellX(i) : cellX(c), y: h ? cellY(r) : cellY(i), r: 0, max: 26, t: -(i / N) * 0.3, d: 0.3 });
-      sfx.jet();
-    } else if (g.sp === 'bomb') { // grenade
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) add(r + dy, c + dx);
-      S.fx.push({ type: 'boom', x: cellX(c), y: cellY(r), r: 0, max: CELL * 2.4, t: 0, d: 0.5 });
-      S.fx.push({ type: 'ring', x: cellX(c), y: cellY(r), r: 0, max: CELL * 2, t: 0, d: 0.4, color: '#ffb347' });
-      spark(cellX(c), cellY(r), '#ffb347', 20, 220, 3, 0.5);
-      S.shake = Math.max(S.shake, 9);
-      sfx.bomb();
-    }
-  }
-  const mul = 1 + 0.5 * (S.cascade - 1);
-  let n = 0, sx = 0, sy = 0;
-  for (const key of clear) {
-    const r = Math.floor(key / N), c = key % N, g = G[r][c];
-    if (!g) continue;
-    g.pop = 0;
-    n++;
-    sx += g.x;
-    sy += g.y;
-    if (g.c < CORE) {
-      S.charge[g.c] += mul;
-      orb(g.x, g.y, GEMS[g.c].color, g.c, mul, Math.random() * 0.08);
-      spark(g.x, g.y, GEMS[g.c].color, lowPower ? 3 : 6, 120, 2.6, 0.4);
-    }
-  }
-  for (const [key, cr] of creates) {
-    const r = Math.floor(key / N), c = key % N, g = G[r][c];
-    if (!g) continue;
-    if (cr.sp === 'core') { g.c = CORE; g.sp = null; } else g.sp = cr.sp;
-    g.s = 0.3;
-    g.sv = 14;
-    spark(g.x, g.y, '#ffffff', 14, 160, 2.4, 0.5);
-    text(g.x, g.y - 20, cr.sp === 'core' ? 'AIRSTRIKE BEACON' : cr.sp === 'bomb' ? 'GRENADE' : 'JET STRIKE', '#ffffff', 11);
-    if (cr.sp === 'core') addStrike('A match of 5', g.x, g.y - 36);
-  }
-  if (n) {
-    addScore(n * 10 * S.cascade);
-    sfx.match(S.cascade - 1);
-    if (S.cascade >= 2) text(sx / n, sy / n, `x${S.cascade}`, '#FFD23F', 20 + Math.min(16, S.cascade * 3), 1.0, 30);
-    if (S.tut === 0) { S.tut = 1; setTimeout(() => toast('Each munition <b>arms a weapon</b>. Stack one kind to upgrade it!', false, 3600), 300); }
-  }
-  S.popT = 0.2;
-  S.bstate = 'pop';
+  if (shot) bossFire(shot);
+  else if (S.moves === 3) toast(`${S.boss && S.boss.present ? 'Next assault' : 'Enemy arrives'} in <b>3 moves</b>!`, true);
 }
 
 function dropAndRefill() {
-  for (let c = 0; c < N; c++) {
-    let write = N - 1;
-    for (let r = N - 1; r >= 0; r--) {
-      const g = G[r][c];
-      if (g && g.pop < 0) { G[r][c] = null; G[write][c] = g; write--; }
-      else if (g) G[r][c] = null;
-    }
-    let spawn = 0;
-    for (let r = write; r >= 0; r--) { spawn++; G[r][c] = gem(rnd5(), cellX(c), BY - spawn * CELL - 6); }
-  }
+  E.dropAndRefill(G, RUN.R, mkGem);
   S.bstate = 'fall';
 }
 function settled() {
@@ -662,17 +528,11 @@ function settled() {
   return true;
 }
 function endTurn() {
-  if (S.cascade >= 3) {
-    banner(S.cascade >= 5 ? 'DEVASTATING!' : S.cascade >= 4 ? 'OUTSTANDING!' : 'NICE CHAIN!', `${S.cascade}x chain`);
-    sfx.combo(S.cascade);
-    buzz(25);
-    addStrike(`A ${S.cascade}x chain`, 195, BY + 150);
-  }
-  S.cascade = 0;
+  const status = E.finishTurn(S, G, RUN.R, FX);
   S.bstate = 'idle';
   S.idleT = 0;
-  if (S.phase === 'day' && S.moves <= 0) { setTimeout(startNight, 450); S.bstate = 'locked'; return; }
-  if (!findMove()) shuffleBoard();
+  if (status === 'over') { S.bstate = 'locked'; setTimeout(gameOver, 1300); }
+  else if (status === 'night') { S.bstate = 'locked'; setTimeout(startNight, 450); }
 }
 
 // ================================================================ input
@@ -713,45 +573,86 @@ cv.addEventListener('pointerup', () => {
   if (S.sel) sfx.select();
 });
 cv.addEventListener('pointercancel', () => { S.press = null; });
-$('playBtn').addEventListener('click', () => { unlockAudio(); newGame(); });
-$('againBtn').addEventListener('click', () => { unlockAudio(); newGame(); });
+// title: pick a mode
+let pick = { kind: 'solo', level: 'normal' };
+try { Object.assign(pick, JSON.parse(localStorage.getItem('nw-pick') || '{}')); } catch { /* ignore */ }
+let DUEL = null;
+const HINTS = {
+  solo: 'Hold the line as long as you can.',
+  ai: 'Same battlefield, same supplies. Outscore the AI commander, live.',
+  daily: 'One battlefield for everyone today. New one at 00:00 UTC.',
+};
+function syncPick() {
+  if (pick.kind === 'duel' && !DUEL) pick.kind = 'solo';
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === pick.kind));
+  document.querySelectorAll('#lvlSeg button').forEach((b) => b.classList.toggle('on', b.dataset.l === pick.level));
+  $('lvlSeg').classList.toggle('on', pick.kind === 'ai');
+  $('modeHint').textContent = pick.kind === 'duel' ? '' : HINTS[pick.kind];
+  $('duelCard').classList.toggle('on', pick.kind === 'duel');
+  const best = loadRuns().filter((r) => r.mode === pick.kind).reduce((m, r) => Math.max(m, r.score), pick.kind === 'solo' ? S.best : 0);
+  ui.best.textContent = fmt(best);
+  try { localStorage.setItem('nw-pick', JSON.stringify({ level: pick.level })); } catch { /* ignore */ }
+}
+document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => { pick.kind = b.dataset.m; sfx.select(); syncPick(); }));
+document.querySelectorAll('#lvlSeg button').forEach((b) => b.addEventListener('click', () => { pick.level = b.dataset.l; sfx.select(); syncPick(); }));
+function modeFromPick() {
+  if (pick.kind === 'ai') return { kind: 'ai', level: pick.level, seed: 0 };
+  if (pick.kind === 'daily') return { kind: 'daily', level: null, seed: todaySeed() };
+  if (pick.kind === 'duel') return { kind: 'duel', level: null, seed: DUEL.seed, ghost: DUEL };
+  return { kind: 'solo', level: null, seed: 0 };
+}
+$('playBtn').addEventListener('click', () => { unlockAudio(); newGame(modeFromPick()); });
+$('againBtn').addEventListener('click', () => { unlockAudio(); newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
+$('menuBtn').addEventListener('click', () => { ui.over.classList.remove('show'); ui.title.classList.add('show'); RIVAL = null; rv.box.classList.remove('show'); S.phase = 'title'; syncPick(); });
+$('duelBtn').addEventListener('click', () => { unlockAudio(); shareDuel(); });
+$('ranksBtn').addEventListener('click', () => { sfx.select(); showRanks(pick.kind === 'duel' ? 'solo' : pick.kind); });
+document.querySelectorAll('#rankSeg button').forEach((b) => b.addEventListener('click', () => showRanks(b.dataset.m)));
+$('ranksBack').addEventListener('click', () => { ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); });
 ui.strikeBtn.addEventListener('click', () => { unlockAudio(); callAirstrike(); });
 ui.mute.classList.toggle('off', isMuted());
 ui.mute.addEventListener('click', () => { unlockAudio(); ui.mute.classList.toggle('off', toggleMute()); });
 
 // ================================================================ flow
-function makeBoss(stageNo) {
-  const d = BOSSES[(stageNo - 1) % BOSSES.length];
-  const mk = Math.floor((stageNo - 1) / BOSSES.length);
-  const hp = Math.round(130 * 1.42 ** (stageNo - 1));
-  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
-}
-function newGame() {
-  Object.assign(S, {
-    stageNo: 1, bossesDown: 0, score: 0, moves: MOVES_PER_DAY, base: 100, shield: 0, charge: [0, 0, 0, 0, 0], shown: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0],
-    strikes: 0, events: [], proj: [], fx: [], texts: [], bstate: 'idle', cascade: 0, sel: null, press: null, hint: null, swap: null, tut: 0, slow: 1, nightEnd: -1, tierShown: [0, 0, 0, 0, 0],
+const todaySeed = () => E.seedFrom(`nightwire-daily-${new Date().toISOString().slice(0, 10)}`);
+function newGame(mode = MODE) {
+  MODE = { ...mode, seed: mode.seed || E.randomSeed() };
+  RUN = E.newRun(MODE.seed, mkGem);
+  Object.assign(S, RUN.st, {
+    events: [], proj: [], fx: [], texts: [], bstate: 'idle', sel: null, press: null, hint: null, swap: null, tut: 0, slow: 1,
+    shown: [0, 0, 0, 0, 0], tierShown: [0, 0, 0, 0, 0], baseHold: 0, lead: 0, leadT: 0,
   });
+  RUN.st = S;
+  G = RUN.G;
+  LOG = [];
+  NIGHT = null;
+  RIVAL = MODE.kind === 'ai' ? makeRival(MODE.seed, MODE.level) : MODE.kind === 'duel' ? makeRival(MODE.seed, 'ghost', MODE.ghost.actions) : null;
+  rv.box.classList.toggle('show', !!RIVAL);
+  rvLast = {};
+  if (RIVAL) rv.name.textContent = MODE.kind === 'duel' ? 'FRIEND' : `AI · ${LEVELS[MODE.level].label}`;
   ORBS.forEach((o) => { o.on = false; });
   P.forEach((p) => { p.on = false; });
   shownScore = 0;
   ui.score.textContent = '0';
-  S.boss = makeBoss(1);
   S.bp = { x: 195, y: 112, s: 0.36 };
   ui.title.classList.remove('show');
   ui.over.classList.remove('show');
-  freshBoard();
+  ui.ranks.classList.remove('show');
   startDay(true);
 }
 function startDay(first = false) {
   S.phase = 'day';
   stage.classList.remove('night');
-  S.moves = MOVES_PER_DAY;
+  if (!first && E.startDay(RUN)) FX.shuffle();
   S.bstate = first ? 'fall' : 'idle';
-  S.events = [];
-  S.shield = 0;
   syncHud();
   bumpMoves();
-  if (first) setTimeout(() => toast(`<b>${S.boss.name}</b> is inbound. Swap supplies to <b>match 3</b> and arm the base.`, false, 3600), 500);
+  if (first) {
+    const msg = MODE.kind === 'ai' ? `Same battlefield as the <b>AI commander</b>. Outscore it!`
+      : MODE.kind === 'duel' ? `Your friend scored <b>${MODE.ghost.score}</b> on this exact battlefield. Beat it!`
+        : MODE.kind === 'daily' ? `<b>Daily Op</b>: everyone fights this battlefield today.`
+          : `<b>${S.boss.name}</b> is inbound. Swap supplies to <b>match 3</b> and arm the base.`;
+    setTimeout(() => toast(msg, false, 3600), 500);
+  }
 }
 
 function startNight() {
@@ -762,154 +663,146 @@ function startNight() {
   S.hint = null;
   stage.classList.add('night');
   ORBS.forEach((o) => { if (o.on) { S.shown[o.gi] += o.val; o.on = false; } });
-  const mul = 1 + 0.12 * (S.stageNo - 1);
-  for (let i = 0; i < 3; i++) {
-    S.ammo[i] = Math.floor(S.charge[i] / 3);
-    S.charge[i] -= S.ammo[i] * 3;
-    S.wtier[i] = tierOf(i, S.ammo[i]);
-  }
-  const shieldTier = tierOf(3, Math.round(S.charge[3] * 2));
-  S.shield = Math.round(S.charge[3] * 2 * TIER_MUL[shieldTier]);
-  S.shieldMax = Math.max(1, S.shield);
-  S.charge[3] = 0;
-  const repTier = tierOf(4, S.charge[4]);
-  const heal = Math.min(S.baseMax - S.base, Math.round(S.charge[4] * TIER_MUL[repTier]));
-  S.charge[4] = 0;
+  const plan = E.planNight(S);
+  NIGHT = { plan, cr: RUN.CR.s, strikes: [], i: 0, endAt: -1, tx: {} };
+  NIGHT.script = E.simNight(plan, [], NIGHT.cr);
   S.shown = S.charge.slice();
-  const shots = [];
-  const left = S.ammo.slice();
-  while (left.some((n) => n > 0)) for (let w = 0; w < 3; w++) if (left[w] > 0) { left[w]--; shots.push(w); }
-  const spacing = shots.length ? Math.max(0.16, Math.min(0.42, 7 / shots.length)) : 0;
-  const start = 2.0;
-  S.events = shots.map((w, j) => ({ t: start + j * spacing, kind: w, dmg: [5, 8, 2.6][w] * mul * TIER_MUL[S.wtier[w]] }));
-  const dur = Math.max(4.5, shots.length * spacing + 0.5);
-  const rage = S.boss.rage;
-  const attacks = 4 + S.stageNo + rage;
-  const bossDmg = (6 + 3 * (S.stageNo - 1)) * (1 + 0.25 * rage);
-  for (let j = 0; j < attacks; j++) S.events.push({ t: start + 0.6 + (j * dur) / attacks, kind: 'boss', dmg: bossDmg });
-  S.events.sort((a, b) => a.t - b.t);
   S.nt = 0;
-  S.nightEnd = -1;
   syncHud();
   banner('INCOMING!', `${S.boss.name} · ${S.boss.role}`);
   sfx.siren();
   buzz(40);
-  if (heal > 0) {
-    setTimeout(() => {
-      S.base += heal;
-      text(195, BASE_Y - 40, `+${heal} REPAIRED`, '#3DDC97', 15);
-      spark(195, BASE_Y, '#3DDC97', 30, 160, 2.6, 0.7);
-      sfx.repair();
-    }, 1200);
-  }
   if (S.strikes > 0) setTimeout(() => toast('Tap <b>CALL AIRSTRIKE</b> to send in the jets!', false, 3000), 1500);
-  else if (!shots.length) setTimeout(() => toast('<b>No weapons armed!</b> Brace for impact.', true, 3200), 1400);
+  else if (!plan.events.some((e) => e.kind !== 'boss')) setTimeout(() => toast('<b>No weapons armed!</b> Brace for impact.', true, 3200), 1400);
 }
 
-function fireWeapon(ev) {
+// play the engine's fight script: every number comes from it, the animation only shows it
+function nightEntry(e) {
   const b = S.boss;
-  if (!b || b.dying >= 0) return;
-  const w = ev.kind, tur = TURRETS[w], tier = S.wtier[w];
+  if (!b) return;
+  switch (e.type) {
+    case 'heal':
+      S.base = e.base;
+      text(195, BASE_Y - 40, `+${e.v} REPAIRED`, '#3DDC97', 15);
+      spark(195, BASE_Y, '#3DDC97', 30, 160, 2.6, 0.7);
+      sfx.repair();
+      break;
+    case 'fire': fireWeapon(e); break;
+    case 'hit': hitBoss(e); break;
+    case 'kill': bossKilled(); break;
+    case 'bfire': b.charge = 0.45; NIGHT.tx[e.id] = 40 + Math.random() * (W - 80); break;
+    case 'blaunch': launchBossShot(NIGHT.tx[e.id] ?? 195); break;
+    case 'bhit':
+      S.shield = e.shield;
+      S.base = e.base;
+      shotLandsFx(e.absorbed, e.rest, NIGHT.tx[e.id] ?? 195, e.shield);
+      break;
+    case 'strike': S.strikes = e.strikes; syncHud(); break;
+    case 'over': closeNight(); gameOver(); break;
+    default:
+  }
+}
+
+function fireWeapon(e) {
+  const b = S.boss;
+  const w = e.w, tur = TURRETS[w], tier = e.tier;
   S.ammo[w] = Math.max(0, S.ammo[w] - 1);
   S.wpulse[w] = 1;
   const hx = S.bp.x + (Math.random() - 0.5) * 80 * S.bp.s, hy = S.bp.y + (Math.random() - 0.3) * 44 * S.bp.s;
   const ang = Math.atan2(hy - tur.y, hx - tur.x);
   const mx = tur.x + Math.cos(ang) * 20, my = tur.y + Math.sin(ang) * 20;
   b.look = Math.atan2(tur.y - S.bp.y, tur.x - S.bp.x);
-  if (w === 0) { // machine gun: a burst of tracers
-    const n = [4, 6, 9][tier];
-    for (let j = 0; j < n; j++) {
+  const vol = E.volley(w, tier, 0);
+  vol.forEach((v, j) => {
+    const t0 = -v.delay / v.d;
+    if (w === 0) { // machine gun tracers
       const tx = hx + (Math.random() - 0.5) * 30, ty = hy + (Math.random() - 0.5) * 20;
-      S.proj.push({ kind: 'tracer', sx: mx, sy: my, cx: (mx + tx) / 2, cy: (my + ty) / 2, tx, ty, t: -j * 0.035, d: 0.16, dmg: ev.dmg / n * 1.6, color: '#FFE08A' });
+      S.proj.push({ kind: 'tracer', sx: mx, sy: my, cx: (mx + tx) / 2, cy: (my + ty) / 2, tx, ty, t: t0, d: v.d, color: '#FFE08A' });
+    } else if (w === 1) { // mortar / howitzer shells, MLRS rockets
+      const n = vol.length;
+      S.proj.push({ kind: tier === 2 ? 'rocket' : 'shell', sx: mx, sy: my, cx: (mx + hx) / 2 + (j - (n - 1) / 2) * 30, cy: Math.min(my, hy) - (tier === 0 ? 130 : 90), tx: hx + (j - (n - 1) / 2) * 16, ty: hy, t: t0, d: v.d, color: GEMS[1].color, splash: true });
+    } else { // guided missile salvo
+      S.proj.push({ kind: 'missile', sx: mx, sy: my, cx: tur.x + (Math.random() - 0.5) * 280, cy: tur.y - 60 - Math.random() * 120, tx: hx + (j - vol.length / 2) * 12, ty: hy, t: t0, d: v.d, color: GEMS[2].color });
     }
-    sfx.mg();
-    setTimeout(() => sfx.mg(), 70);
-    setTimeout(() => sfx.mg(), 140);
-  } else if (w === 1) { // mortar/howitzer shells, MLRS rockets at tier 3
-    const n = tier === 2 ? 3 : 1;
-    for (let j = 0; j < n; j++) {
-      S.proj.push({ kind: tier === 2 ? 'rocket' : 'shell', sx: mx, sy: my, cx: (mx + hx) / 2 + (j - 1) * 30, cy: Math.min(my, hy) - (tier === 0 ? 130 : 90), tx: hx + (j - 1) * 16, ty: hy, t: -j * 0.1, d: tier === 0 ? 0.7 : 0.5, dmg: ev.dmg / n * (n > 1 ? 1.3 : 1), color: GEMS[1].color, splash: true });
-    }
-    spark(mx, my, '#ffd28a', 10, 100, 2.6, 0.3);
-    smoke(mx, my, 4);
-    sfx.cannon();
-  } else { // guided missiles: salvo size grows with tier
-    const n = [2, 3, 4][tier];
-    for (let j = 0; j < n; j++) {
-      S.proj.push({ kind: 'missile', sx: mx, sy: my, cx: tur.x + (Math.random() - 0.5) * 280, cy: tur.y - 60 - Math.random() * 120, tx: hx + (j - n / 2) * 12, ty: hy, t: -j * 0.08, d: 0.75, dmg: ev.dmg * 3 / n, color: GEMS[2].color });
-    }
-    sfx.missile();
-  }
+  });
+  if (w === 0) { sfx.mg(); setTimeout(() => sfx.mg(), 70); setTimeout(() => sfx.mg(), 140); }
+  else if (w === 1) { spark(mx, my, '#ffd28a', 10, 100, 2.6, 0.3); smoke(mx, my, 4); sfx.cannon(); }
+  else sfx.missile();
 }
 
 function callAirstrike() {
   const b = S.boss;
-  if (S.phase !== 'night' || S.strikes <= 0 || !b || b.dying >= 0) return;
+  if (S.phase !== 'night' || !NIGHT || S.strikes <= 0 || !b || b.dying >= 0) return;
+  const ts = Math.floor(S.nt * 100) / 100;
+  NIGHT.strikes.push(ts);
+  NIGHT.script = E.simNight(NIGHT.plan, NIGHT.strikes, NIGHT.cr);
+  const en = NIGHT.script.entries;
+  let i = 0;
+  while (i < en.length && en[i].t <= S.nt) i++;
+  NIGHT.i = i;
+  NIGHT.endAt = -1;
   S.strikes--;
   syncHud();
-  const mul = 1 + 0.12 * (S.stageNo - 1);
   const y0 = Math.max(SKY_TOP + 40, S.bp.y - 70);
   S.fx.push({ type: 'flyover', y: y0, t: 0, d: 1.1 });
   for (let j = 0; j < 3; j++) {
-    const dx = (j - 1) * 46;
-    S.proj.push({ kind: 'bomb', sx: S.bp.x + dx - 60, sy: y0 + (j - 1) * 6, cx: S.bp.x + dx - 20, cy: y0, tx: S.bp.x + dx * 0.6, ty: S.bp.y + 6, t: -0.38 - j * 0.09, d: 0.38, dmg: 16 * mul, color: '#ffb347', splash: true });
+    const dx = (j - 1) * 46, v = E.BOMB(j);
+    S.proj.push({ kind: 'bomb', sx: S.bp.x + dx - 60, sy: y0 + (j - 1) * 6, cx: S.bp.x + dx - 20, cy: y0, tx: S.bp.x + dx * 0.6, ty: S.bp.y + 6, t: -v.delay / v.d, d: v.d, color: '#ffb347', splash: true });
   }
   sfx.strike();
   buzz(50);
   banner('AIRSTRIKE', 'jets inbound');
 }
 
-function hitBoss(dmg, color, x, y, big = false) {
+function hitBoss(e) {
   const b = S.boss;
-  if (!b || b.dying >= 0) return;
-  const crit = Math.random() < 0.1;
-  const d = Math.round(dmg * (crit ? 2 : 1) * 10) / 10;
-  b.hp = Math.max(0, b.hp - d);
+  b.hp = e.hp;
+  S.score = e.score;
   b.flash = 0.08;
+  const big = e.src === 1 || e.src === 'bomb';
+  const color = e.src === 'bomb' ? '#ffb347' : GEMS[e.src].color;
+  const x = S.bp.x + (Math.random() - 0.5) * 80 * S.bp.s, y = S.bp.y + (Math.random() - 0.3) * 44 * S.bp.s;
   spark(x, y, color, lowPower ? 4 : big ? 14 : 7, big ? 220 : 160, 2.6, 0.4);
-  if (d >= 3 || crit) text(x + (Math.random() - 0.5) * 24, y - 10, crit ? `CRIT ${Math.ceil(d)}` : `${Math.ceil(d)}`, crit ? '#FFD23F' : '#ffffff', crit ? 17 : big ? 15 : 12, 0.8, 44);
-  addScore(d * 2);
+  if (e.d >= 3 || e.crit) text(x + (Math.random() - 0.5) * 24, y - 10, e.crit ? `CRIT ${Math.ceil(e.d)}` : `${Math.ceil(e.d)}`, e.crit ? '#FFD23F' : '#ffffff', e.crit ? 17 : big ? 15 : 12, 0.8, 44);
   sfx.impact();
-  if (b.hp <= 0) {
-    b.dying = 2.2;
-    S.slow = 0.35;
-    S.events = S.events.filter((e) => e.kind !== 'boss');
-    S.proj = S.proj.filter((p) => p.kind !== 'bossShot');
-    ui.strikeBtn.classList.remove('show');
-    sfx.bossDown();
-    buzz(80);
-  }
+}
+function bossKilled() {
+  const b = S.boss;
+  b.dying = 2.2;
+  S.slow = 0.35;
+  S.proj = S.proj.filter((p) => p.kind !== 'bossShot');
+  ui.strikeBtn.classList.remove('show');
+  sfx.bossDown();
+  buzz(80);
 }
 
-function bossFire(ev) {
+function bossFire(dmg) { // daytime: a boss holding the sky shells the base (the engine already counted the damage)
   const b = S.boss;
-  if (!b || b.dying >= 0) return;
+  if (!b) return;
   b.charge = 0.45;
+  S.baseHold += dmg;
   const tx = 40 + Math.random() * (W - 80);
-  setTimeout(() => {
-    if (!S.boss || S.boss.dying >= 0 || S.phase === 'over' || S.phase === 'title') return;
-    S.boss.recoil = 1;
-    const sx = S.bp.x, sy = S.bp.y + 30 * S.bp.s;
-    S.proj.push({ kind: 'bossShot', sx, sy, cx: (sx + tx) / 2 + (Math.random() - 0.5) * 140, cy: sy + 50, tx, ty: BASE_Y - 6, t: 0, d: 0.7, dmg: ev.dmg, color: '#ff4a4a' });
-    smoke(sx, sy, 5);
-    sfx.bossShot();
-  }, 380);
+  setTimeout(() => launchBossShot(tx, dmg), 380);
 }
-function bossShotLands(p) {
-  if (S.shield > 0) {
-    const absorbed = Math.min(S.shield, p.dmg);
-    S.shield -= absorbed;
-    const rest = p.dmg - absorbed;
+function launchBossShot(tx, dayDmg = 0) {
+  if (!S.boss || S.boss.dying >= 0 || S.phase === 'over' || S.phase === 'title') { if (dayDmg) S.baseHold = 0; return; }
+  S.boss.recoil = 1;
+  const sx = S.bp.x, sy = S.bp.y + 30 * S.bp.s;
+  S.proj.push({ kind: 'bossShot', sx, sy, cx: (sx + tx) / 2 + (Math.random() - 0.5) * 140, cy: sy + 50, tx, ty: BASE_Y - 6, t: 0, d: E.BOSS_FLIGHT, dayDmg, color: '#ff4a4a' });
+  smoke(sx, sy, 5);
+  sfx.bossShot();
+}
+function shotLandsFx(absorbed, rest, x, shieldLeft) {
+  if (absorbed > 0) {
     S.fx.push({ type: 'shieldHit', t: 0, d: 0.4 });
-    S.fx.push({ type: 'boom', x: p.tx, y: p.ty - 50, r: 0, max: 36, t: 0, d: 0.35 });
-    spark(p.tx, p.ty - 50, '#3FC8FF', 14, 160, 2.4, 0.45);
-    text(p.tx, p.ty - 60, S.shield <= 0 ? 'SHIELD DOWN' : 'INTERCEPTED', '#3FC8FF', 12);
+    S.fx.push({ type: 'boom', x, y: BASE_Y - 56, r: 0, max: 36, t: 0, d: 0.35 });
+    spark(x, BASE_Y - 56, '#3FC8FF', 14, 160, 2.4, 0.45);
+    text(x, BASE_Y - 66, shieldLeft <= 0 ? 'SHIELD DOWN' : 'INTERCEPTED', '#3FC8FF', 12);
     sfx.shield();
-    if (rest > 0) damageBase(rest, p.tx);
-  } else damageBase(p.dmg, p.tx);
+  }
+  if (rest > 0) damageFx(rest, x);
 }
-function damageBase(d, x) {
-  S.base = Math.max(0, S.base - d);
+function damageFx(d, x) {
   S.shake = 12;
   S.flash = 0.45;
   S.flashCol = '255,60,60';
@@ -919,15 +812,19 @@ function damageBase(d, x) {
   text(x, BASE_Y - 30, `-${Math.round(d)}`, '#ff6b6b', 16);
   sfx.baseHit();
   buzz(45);
-  if (S.base <= 0) gameOver();
 }
 
+function closeNight() { // log the night and hand the result to the engine
+  if (!NIGHT) return;
+  LOG.push(E.encodeNight(NIGHT.strikes));
+  E.finishNight(RUN, NIGHT.script);
+  NIGHT = null;
+}
 function endNight() {
   const b = S.boss;
-  if (b.dying >= 0 || b.hp <= 0) return;
-  const first = !b.present;
-  b.present = true;
-  b.rage++;
+  closeNight();
+  E.bossHolds(S);
+  const first = b.rage === 1;
   ui.strikeBtn.classList.remove('show');
   banner(`${b.name} HOLDS THE SKY`, `Rage ${b.rage}  ·  ${Math.ceil(b.hp)} HP left`);
   sfx.siren();
@@ -940,39 +837,180 @@ function endNight() {
   }, 1600);
 }
 function bossDefeated() {
-  const bonus = 500 * S.stageNo;
-  addScore(bonus);
-  S.bossesDown++;
+  closeNight();
+  const bonus = E.bossDefeated(S);
+  S.boss = null;
   banner('TARGET DESTROYED', `+${bonus}  ·  base repaired`);
   S.flash = 0.8;
   S.flashCol = '255,255,255';
   S.slow = 1;
   setTimeout(() => {
     if (S.phase === 'over') return;
-    S.stageNo++;
-    S.base = Math.min(S.baseMax, S.base + 30);
-    S.boss = makeBoss(S.stageNo);
+    E.nextStage(S);
     S.bp = { x: 195, y: -80, s: 0.3 };
     startDay();
     toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) inbound`, true, 3000);
   }, 2000);
 }
+
+// ================================================================ runs, leaderboard, duels
+function loadRuns() { try { return JSON.parse(localStorage.getItem('nw-runs') || '[]'); } catch { return []; } }
+function saveRun(run) {
+  const all = loadRuns();
+  all.push(run);
+  const keep = [];
+  for (const m of ['solo', 'ai', 'daily', 'duel']) keep.push(...all.filter((r) => r.mode === m).sort((a, b) => b.score - a.score).slice(0, 15));
+  try { localStorage.setItem('nw-runs', JSON.stringify(keep)); } catch { /* storage full or blocked */ }
+}
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+const b64 = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64 = (s) => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
+function duelLink() {
+  const data = { s: MODE.seed, sc: S.score, st: S.stageNo, a: LOG.join(',') };
+  return `${location.origin}${location.pathname}#duel=${b64(JSON.stringify(data))}`;
+}
+// a friend's challenge link: their seed and every move they made, checked by replaying it before you fight it
+function readDuel() {
+  const m = location.hash.match(/duel=([\w-]+)/);
+  if (!m) return null;
+  try {
+    const d = JSON.parse(unb64(m[1]));
+    const actions = d.a ? d.a.split(',') : [];
+    const check = E.replay(d.s >>> 0, actions);
+    if (!check.ok || !check.st.over || check.st.score !== d.sc) return { bad: true };
+    return { seed: d.s >>> 0, actions, score: d.sc, stage: d.st };
+  } catch { return { bad: true }; }
+}
+
+let lastResult = null;
 function gameOver() {
   if (S.phase === 'over') return;
   S.phase = 'over';
   S.slow = 0.3;
   ui.strikeBtn.classList.remove('show');
   sfx.over();
-  const isBest = S.score > S.best;
-  if (isBest) { S.best = S.score; try { localStorage.setItem('nw-best', String(S.best)); } catch { /* ignore */ } }
+  closeNight();
+  const check = E.replay(MODE.seed, LOG);
+  const ok = check.ok && check.st.over && check.st.score === S.score;
+  const prev = loadRuns().filter((r) => r.mode === MODE.kind).reduce((m, r) => Math.max(m, r.score), 0);
+  const isBest = S.score > prev;
+  lastResult = { mode: MODE.kind, level: MODE.level, score: S.score, stage: S.stageNo, kills: S.bossesDown, t: Date.now(), seed: MODE.seed, ok, log: LOG.join(',') };
+  if (S.score > 0) saveRun(lastResult);
+  if (MODE.kind === 'solo' && isBest) { S.best = S.score; try { localStorage.setItem('nw-best', String(S.best)); } catch { /* ignore */ } }
   setTimeout(() => {
-    $('ovDay').textContent = `Reached stage ${S.stageNo}`;
-    $('ovScore').textContent = S.score;
+    $('ovTitle').textContent = 'The base fell';
+    $('ovTitle').className = 'ov-title';
+    $('ovDay').textContent = `Reached stage ${S.stageNo}${MODE.kind === 'daily' ? ' · Daily Op' : ''}`;
+    $('ovScore').textContent = fmt(S.score);
     $('ovKills').textContent = S.bossesDown;
-    $('ovBest').textContent = S.best;
+    $('ovBest').textContent = fmt(Math.max(prev, S.score));
     $('ovNew').classList.toggle('on', isBest && S.score > 0);
+    $('ovVerify').innerHTML = ok
+      ? `<span class="ok">✓</span> Score verified by replaying all ${LOG.length} actions · seed ${MODE.seed.toString(16).toUpperCase()}`
+      : `<span class="bad">✗</span> Replay mismatch (${check.reason || (!check.st.over ? 'replay did not end the run' : `replay gave ${check.st.score}`)})`;
+    $('ovVs').classList.toggle('on', !!RIVAL);
+    if (RIVAL) {
+      $('vsYou').textContent = fmt(S.score);
+      $('vsYouS').textContent = `stage ${S.stageNo}`;
+      $('vsThemL').textContent = rv.name.textContent;
+      const show = () => {
+        const them = RIVAL.st;
+        $('vsThem').textContent = fmt(them.score);
+        $('vsThemS').textContent = `stage ${them.stageNo}`;
+        const win = S.score > them.score, draw = S.score === them.score;
+        $('ovTitle').textContent = draw ? 'DRAW' : win ? 'VICTORY' : 'DEFEATED';
+        $('ovTitle').className = `ov-title ${win ? 'win' : draw ? '' : ''}`;
+        if (win) sfx.bossDown();
+      };
+      if (RIVAL.finished) show();
+      else { $('vsThem').textContent = '…'; $('vsThemS').textContent = 'still fighting'; RIVAL.fastForward(show); }
+    }
     ui.over.classList.add('show');
   }, 1300);
+}
+
+function shareDuel() {
+  if (!lastResult) return;
+  const url = duelLink();
+  const msg = `I scored ${fmt(S.score)} on Nightwire (stage ${S.stageNo}). Same battlefield, same supplies. Beat me:`;
+  if (navigator.share) { navigator.share({ title: 'Nightwire duel', text: msg, url }).catch(() => {}); return; }
+  const done = () => toast('<b>Challenge link copied.</b> Send it to a friend!', false, 2600);
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(`${msg} ${url}`).then(done, () => window.prompt('Copy this link', url));
+  else window.prompt('Copy this challenge link', url);
+}
+
+function showRanks(mode) {
+  ui.ranks.classList.add('show');
+  ui.title.classList.remove('show');
+  document.querySelectorAll('#rankSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
+  const rows = loadRuns().filter((r) => r.mode === mode).sort((a, b) => b.score - a.score).slice(0, 10);
+  $('rankList').innerHTML = rows.length ? rows.map((r, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">stage ${r.stage}${r.level ? ` · ${r.level}` : ''}<br>${new Date(r.t).toLocaleDateString()}</span><span class="rv ${r.ok ? 'ok' : 'bad'}">${r.ok ? '✓' : '✗'}</span></li>`).join('')
+    : '<li class="empty">No runs yet. Go hold the line.</li>';
+}
+
+// ================================================================ rival panel
+const rv = { box: $('rival'), cv: $('rivalCv'), name: $('rvName'), stage: $('rvStage'), score: $('rvScore'), base: $('rvBase'), status: $('rvStatus'), lead: $('rvLead'), pop: $('rvPop') };
+const rctx = rv.cv.getContext('2d');
+let rvLast = {};
+function setTxt(el, key, v) { if (rvLast[key] !== v) { rvLast[key] = v; el.textContent = v; } }
+function rvPop(str, col = '#FFD23F') {
+  rv.pop.textContent = str;
+  rv.pop.style.color = col;
+  rv.pop.classList.remove('show');
+  void rv.pop.offsetWidth;
+  rv.pop.classList.add('show');
+}
+function rivalEvents() {
+  for (const e of RIVAL.ev.splice(0)) {
+    if (e.type === 'chain') rvPop(`x${e.n} CHAIN`);
+    else if (e.type === 'strike') rvPop('AIRSTRIKE');
+    else if (e.type === 'bomber') rvPop('BOMBER', '#ff7a7a');
+    else if (e.type === 'hit') { rv.box.classList.remove('hit'); void rv.box.offsetWidth; rv.box.classList.add('hit'); }
+    else if (e.type === 'kill') { rvPop(`${e.name} DOWN`, '#3DDC97'); toast(`${rv.name.textContent} destroyed <b>${e.name}</b>`, false, 2400); }
+    else if (e.type === 'fell') { rvPop('BASE FELL', '#ff6b6b'); toast(`The rival's base fell at stage ${RIVAL.st.stageNo}. Beat <b>${fmt(RIVAL.st.score)}</b>!`, false, 3200); }
+  }
+  // lead changes
+  const d = S.score - RIVAL.st.score, sgn = Math.sign(d);
+  if (sgn && sgn !== S.lead && S.time - S.leadT > 4 && S.score + RIVAL.st.score > 300) {
+    S.leadT = S.time;
+    if (sgn > 0) { text(300, 54, 'YOU TOOK THE LEAD', '#3DDC97', 13, 1.6, 10); sfx.upgrade(); }
+    else text(300, 54, 'RIVAL TAKES THE LEAD', '#ff6b6b', 13, 1.6, 10);
+  }
+  if (sgn) S.lead = sgn;
+}
+function drawRival() {
+  const R = RIVAL, st = R.st, sz = rv.cv.width, cs = sz / N;
+  if (R.dirty || R.flash.length || R.phase === 'night' || rvLast.night) {
+    R.dirty = false;
+    rctx.clearRect(0, 0, sz, sz);
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const g = R.run.G[r][c];
+      rctx.fillStyle = g.c === CORE ? '#ff4a4a' : GEMS[g.c].color;
+      rctx.globalAlpha = R.phase === 'night' ? 0.35 : 0.9;
+      rctx.fillRect(c * cs + 0.6, r * cs + 0.6, cs - 1.2, cs - 1.2);
+      if (g.sp) { rctx.globalAlpha = 1; rctx.fillStyle = '#fff'; rctx.fillRect(c * cs + cs * 0.35, r * cs + cs * 0.35, cs * 0.3, cs * 0.3); }
+    }
+    rctx.fillStyle = '#fff';
+    for (const [r, c, t] of R.flash) { if (t <= 0) continue; rctx.globalAlpha = t / 0.35; rctx.fillRect(c * cs, r * cs, cs, cs); }
+    rctx.globalAlpha = 1;
+    rvLast.night = R.phase === 'night';
+    if (R.phase === 'night') { // the rival's fight: boss health draining
+      const hp = R.night.hp / st.boss.max;
+      rctx.fillStyle = 'rgba(0,0,0,0.6)';
+      rctx.fillRect(sz * 0.1, sz * 0.44, sz * 0.8, sz * 0.12);
+      rctx.fillStyle = st.boss.color;
+      rctx.fillRect(sz * 0.1, sz * 0.44, sz * 0.8 * hp, sz * 0.12);
+    }
+  }
+  setTxt(rv.stage, 'stage', `S${st.stageNo}`);
+  setTxt(rv.score, 'score', fmt(st.score));
+  const base = R.phase === 'night' ? R.night.base : st.base;
+  const bw = `${Math.max(0, base / st.baseMax) * 100}%`;
+  if (rvLast.bw !== bw) { rvLast.bw = bw; rv.base.style.width = bw; }
+  setTxt(rv.status, 'status', R.phase === 'over' ? 'BASE FELL' : R.phase === 'night' ? `vs ${st.boss.name}` : `${st.moves} moves left`);
+  const d = S.score - st.score;
+  setTxt(rv.lead, 'lead', d === 0 ? 'TIED' : d > 0 ? `YOU +${fmt(d)}` : `YOU −${fmt(-d)}`);
+  rv.lead.className = `rv-lead ${d > 0 ? 'up' : d < 0 ? 'down' : ''}`;
 }
 
 // ================================================================ update
@@ -1007,8 +1045,8 @@ function updateBoard(dt) {
   if (S.bstate === 'swap' && !G.some((row) => row.some((g) => g && g.sw))) afterSwap();
   else if (S.bstate === 'pop') { S.popT -= dt; if (S.popT <= 0) dropAndRefill(); }
   else if (S.bstate === 'fall' && settled()) {
-    const runs = findRuns();
-    if (runs.length) { S.cascade++; resolveRuns(runs, null); } else endTurn();
+    const runs = E.findRuns(G);
+    if (runs.length) { S.cascade++; const rr = E.resolveRuns(G, runs, null); clearAndAnimate(rr.clear, rr.creates); } else endTurn();
   } else if (S.bstate === 'idle' && S.phase === 'day') {
     S.idleT += dt;
     if (S.idleT > 6 && !S.hint) S.hint = findMove();
@@ -1053,22 +1091,20 @@ function update(dt) {
         spark(S.bp.x, S.bp.y, b.color, 60, 260, 3, 1.0);
         S.fx.push({ type: 'boom', x: S.bp.x, y: S.bp.y, r: 0, max: 230, t: 0, d: 0.7 });
         S.shake = 16;
-        S.boss = null;
         bossDefeated();
       }
     }
   }
 
-  if (S.phase === 'night') {
+  if (S.phase === 'night' && NIGHT) {
     S.nt += dt;
-    while (S.events.length && S.events[0].t <= S.nt) {
-      const ev = S.events.shift();
-      if (ev.kind === 'boss') bossFire(ev); else fireWeapon(ev);
+    const en = NIGHT.script.entries;
+    while (NIGHT && NIGHT.i < en.length && en[NIGHT.i].t <= S.nt) nightEntry(en[NIGHT.i++]);
+    // the boss survived the volley: give the player a moment to call a strike, then it holds the sky
+    if (NIGHT && S.phase === 'night' && NIGHT.script.outcome === 'hold' && NIGHT.i >= en.length && !S.proj.length) {
+      if (NIGHT.endAt < 0) NIGHT.endAt = S.nt + (S.strikes > 0 ? 3.5 : 0.9);
+      else if (S.nt >= NIGHT.endAt) endNight();
     }
-    if (S.boss && S.boss.dying < 0 && !S.events.length && !S.proj.length) {
-      if (S.nightEnd < 0) S.nightEnd = S.nt + (S.strikes > 0 ? 3.5 : 0.9); // give the player a moment to call a strike
-      else if (S.nt >= S.nightEnd) { S.nightEnd = 1e9; endNight(); }
-    } else if (S.events.length || S.proj.length) S.nightEnd = -1;
   }
 
   for (let j = S.proj.length - 1; j >= 0; j--) {
@@ -1084,9 +1120,9 @@ function update(dt) {
     if (p.kind === 'shell' && Math.random() < 0.4) smoke(p.x, p.y, 1);
     if (p.t >= 1) {
       S.proj.splice(j, 1);
-      if (p.kind === 'bossShot') bossShotLands(p);
+      if (p.kind === 'bossShot') { if (p.dayDmg) { S.baseHold = Math.max(0, S.baseHold - p.dayDmg); damageFx(p.dayDmg, p.tx); } }
       else {
-        hitBoss(p.dmg, p.color, p.tx, p.ty, p.splash);
+        spark(p.tx, p.ty, p.color, lowPower ? 2 : 4, 140, 2.4, 0.3);
         if (p.splash) { S.fx.push({ type: 'boom', x: p.tx, y: p.ty, r: 0, max: p.kind === 'bomb' ? 80 : 46, t: 0, d: 0.42 }); smoke(p.tx, p.ty, 4); S.shake = Math.max(S.shake, p.kind === 'bomb' ? 12 : 5); }
         if (p.kind === 'bomb') sfx.bomb();
       }
@@ -1471,7 +1507,8 @@ function drawBase() {
     }
     ctx.restore();
   });
-  const ratio = S.base / S.baseMax;
+  const shownBase = Math.min(S.baseMax, S.base + (S.baseHold || 0));
+  const ratio = shownBase / S.baseMax;
   const col = ratio > 0.6 ? '#3DDC97' : ratio > 0.3 ? '#FBBF24' : '#FF6B6B';
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(14, BASE_Y + 24, W - 28, 5);
@@ -1481,7 +1518,7 @@ function drawBase() {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgba(232,238,247,0.75)';
-  ctx.fillText(`BASE ${Math.ceil(S.base)}`, 14, BASE_Y + 21);
+  ctx.fillText(`BASE ${Math.ceil(shownBase)}`, 14, BASE_Y + 21);
   if (S.shield > 0 && S.phase === 'night') { ctx.textAlign = 'right'; ctx.fillStyle = '#3FC8FF'; ctx.fillText(`SHIELD ${Math.ceil(S.shield)}`, W - 14, BASE_Y + 21); }
 }
 
@@ -1666,7 +1703,9 @@ function frame(now) {
   if (S.slow < 1 && S.phase !== 'over') S.slow = Math.min(1, S.slow + real * 0.6);
   if (S.phase !== 'title') update(real * S.slow);
   else S.time += real;
+  if (RIVAL && (S.phase === 'day' || S.phase === 'night')) { RIVAL.update(real); rivalEvents(); }
   render();
+  if (RIVAL) drawRival();
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { cancelAnimationFrame(raf); raf = 0; }
@@ -1674,12 +1713,16 @@ document.addEventListener('visibilitychange', () => {
 });
 
 resize();
-ui.best.textContent = S.best;
-S.boss = makeBoss(1);
-freshBoard();
+DUEL = readDuel();
+if (DUEL && !DUEL.bad) { pick.kind = 'duel'; $('duelScore').textContent = fmt(DUEL.score); }
+else if (DUEL && DUEL.bad) setTimeout(() => toast('That challenge link did not pass the replay check.', true, 3600), 600);
+syncPick();
+RUN = E.newRun(E.randomSeed(), mkGem);
+G = RUN.G;
+S.boss = RUN.st.boss;
 syncHud();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => buildSprites());
 raf = requestAnimationFrame(frame);
 
 // test hook (used by automated play-tests)
-window.__nw = { S, get G() { return G; }, startSwap, findMove, cellX, cellY, startNight, newGame, callAirstrike, makeBoss };
+window.__nw = { S, E, get G() { return G; }, get LOG() { return LOG; }, get MODE() { return MODE; }, get RIVAL() { return RIVAL; }, get NIGHT() { return NIGHT; }, startSwap, findMove, cellX, cellY, startNight, newGame, callAirstrike, makeBoss: E.makeBoss };
