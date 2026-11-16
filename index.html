@@ -96,7 +96,8 @@
 
     <div id="sheetBg"></div>
     <div id="sheet2">
-      <div class="grab"></div>
+      <div class="grab" id="sheetGrab"></div>
+      <button class="sheet-x" id="sheetX" aria-label="Close">×</button>
       <div id="duelSheet">
         <div class="sh-title">Challenge a friend</div>
         <p class="sh-sub">They get your exact battlefield, and your run plays beside them as a ghost.</p>
@@ -134,6 +135,12 @@
           <div class="chainst" id="raidSt"></div>
         </div>
         <div class="chainst" id="shopSt"></div>
+      </div>
+      <div id="quitSheet">
+        <div class="sh-title">Leave this battle?</div>
+        <p class="sh-sub">The game is paused. If you leave now this run ends and isn't scored.</p>
+        <button class="cta" id="quitResume">Resume the battle</button>
+        <div class="row2"><button class="ghostbtn" id="quitLeave">Quit to menu</button></div>
       </div>
       <div id="nameSheet">
         <div class="sh-title">Your callsign</div>

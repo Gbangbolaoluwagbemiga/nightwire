@@ -764,7 +764,9 @@ function hwSync() {
   $('hwNext').textContent = i === HW_CARDS - 1 ? 'Start playing' : 'Next';
   return i;
 }
+function hideHowtoNow() { if (!$('howto').classList.contains('show')) return; $('howto').classList.remove('show'); ui.title.classList.add('show'); syncCallsign(); }
 function openHowto() {
+  pushOverlay(() => { saveHowto(); hideHowtoNow(); });
   ui.title.classList.remove('show');
   $('howto').classList.add('show');
   $('hwName').value = callsign;
@@ -775,13 +777,11 @@ function openHowto() {
   hwSync();
   requestAnimationFrame(hwArt);
 }
-function closeHowto() {
+function saveHowto() {
   if ($('hwName').value.trim()) setCallsign($('hwName').value, true);
   try { localStorage.setItem('nw-howto', '1'); } catch { /* ignore */ }
-  $('howto').classList.remove('show');
-  ui.title.classList.add('show');
-  syncCallsign();
 }
+function closeHowto() { backOverlay(); }
 $('howBtn').addEventListener('click', () => { unlockAudio(); sfx.select(); openHowto(); });
 $('hwSkip').addEventListener('click', closeHowto);
 $('hwPrev').addEventListener('click', () => hwGo(Math.max(0, hwSync() - 1)));
@@ -846,7 +846,9 @@ function drawForgePreview() { // the same boss art, on the Forge canvas
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx = keep;
 }
+function closeForgeNow() { if (!$('forge').classList.contains('show')) return; $('forge').classList.remove('show'); ui.title.classList.add('show'); }
 function openForge() {
+  pushOverlay(closeForgeNow);
   ui.title.classList.remove('show');
   $('forge').classList.add('show');
   $('forge').scrollTop = 0;
@@ -855,7 +857,7 @@ function openForge() {
   loadMachines();
 }
 function fightForge(design, id = null, author = '') {
-  $('forge').classList.remove('show');
+  if ($('forge').classList.contains('show')) { $('forge').classList.remove('show'); dropOverlay(); }
   unlockAudio();
   newGame({ kind: 'forge', level: null, seed: E.forgeSeed(design), forge: { design, id, author } });
 }
@@ -881,7 +883,7 @@ $('fgWeak').addEventListener('click', () => forgeEdit((d) => { d.focusWeakBase =
 $('fgRage').addEventListener('click', () => forgeEdit((d) => { d.focusEnraged = !d.focusEnraged; }));
 $('fgName').addEventListener('change', (e) => forgeEdit((d) => { d.name = e.target.value; }));
 $('forgeBtn').addEventListener('click', () => { unlockAudio(); sfx.select(); openForge(); });
-$('fgBack').addEventListener('click', () => { $('forge').classList.remove('show'); ui.title.classList.add('show'); });
+$('fgBack').addEventListener('click', backOverlay);
 $('fgTest').addEventListener('click', () => fightForge({ ...forgeDesign }));
 $('fgInspect').addEventListener('click', () => { const c = F.compile(forgeDesign); openChips(forgeDesign.hull, null, c.circuit, forgeDesign.name); });
 $('fgPublish').addEventListener('click', async () => {
@@ -946,10 +948,14 @@ function modeFromPick() {
 }
 $('playBtn').addEventListener('click', () => { unlockAudio(); newGame(modeFromPick()); });
 $('againBtn').addEventListener('click', () => { unlockAudio(); newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
-$('menuBtn').addEventListener('click', () => { ui.over.classList.remove('show'); ui.title.classList.add('show'); RIVAL = null; rv.box.classList.remove('show'); S.phase = 'title'; syncPick(); });
+$('menuBtn').addEventListener('click', () => { if (gameGuard) { gameGuard = false; dropOverlay(); } goMenu(); });
+$('quitResume').addEventListener('click', () => { closeSheet(); setTimeout(guardGame, 60); });
+$('quitLeave').addEventListener('click', () => { closeSheet(); setTimeout(() => { S.phase = 'over'; goMenu(); }, 60); });
 $('duelBtn').addEventListener('click', () => { unlockAudio(); openSheet('duel'); });
 $('shareLinkBtn').addEventListener('click', () => { closeSheet(); shareDuel(); });
 $('sheetBg').addEventListener('click', closeSheet);
+$('sheetX').addEventListener('click', closeSheet);
+$('sheetGrab').addEventListener('click', closeSheet);
 $('inboxBtn').addEventListener('click', () => { sfx.select(); openSheet('inbox'); });
 $('tsSendBtn').addEventListener('click', () => { unlockAudio(); sendTapeSend(); });
 $('ibLoadBtn').addEventListener('click', () => { unlockAudio(); loadInbox(); });
@@ -960,9 +966,10 @@ document.querySelector('#rankSeg button[data-m=global]').hidden = !API.enabled()
 $('callsign').addEventListener('change', (e) => setCallsign(e.target.value));
 $('callBtn').addEventListener('click', () => { unlockAudio(); openSheet('name'); $('nameInput').value = callsign; $('nameSt').textContent = ''; setTimeout(() => $('nameInput').focus(), 300); });
 $('nameSave').addEventListener('click', async () => { const v = cleanCall($('nameInput').value); if (!v) { $('nameSt').textContent = 'Use letters, numbers, spaces, - _ or .'; return; } await setCallsign(v); sfx.upgrade(); closeSheet(); });
-$('ranksBtn').addEventListener('click', () => { sfx.select(); showRanks(pick.kind === 'duel' ? 'solo' : pick.kind); });
+$('ranksBtn').addEventListener('click', () => { sfx.select(); pushOverlay(closeRanksNow); showRanks(pick.kind === 'duel' || pick.kind === 'forge' ? 'solo' : pick.kind); });
+function closeRanksNow() { if (!ui.ranks.classList.contains('show')) return; ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); }
 document.querySelectorAll('#rankSeg button').forEach((b) => b.addEventListener('click', () => showRanks(b.dataset.m)));
-$('ranksBack').addEventListener('click', () => { ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); });
+$('ranksBack').addEventListener('click', backOverlay);
 ui.strikeBtn.addEventListener('click', () => { unlockAudio(); callAirstrike(); });
 ui.mute.classList.toggle('off', isMuted());
 ui.mute.addEventListener('click', () => { unlockAudio(); ui.mute.classList.toggle('off', toggleMute()); });
@@ -994,6 +1001,7 @@ function newGame(mode = MODE) {
   ui.title.classList.remove('show');
   ui.over.classList.remove('show');
   ui.ranks.classList.remove('show');
+  guardGame();
   startDay(true);
 }
 function startDay(first = false) {
@@ -1372,11 +1380,39 @@ let myCircuit = '', callsign = '';
 try { callsign = localStorage.getItem('nw-name') || ''; } catch { /* ignore */ }
 try { myCircuit = localStorage.getItem('nw-circuit') || ''; } catch { /* ignore */ }
 function openSheet(kind) {
+  if (!$('sheet2').classList.contains('show')) pushOverlay(closeSheetNow);
   $('sheet2').className = `show ${kind}`;
   $('sheetBg').classList.add('show');
   $('tsFrom').value = myCircuit;
   $('ibName').value = myCircuit;
 }
+// ---------------------------------------------------------------- back navigation
+// Every panel or screen opened over the title registers here, so the phone's back button (or swipe back),
+// the × button and Esc all close the top one instead of leaving the site.
+const overlays = [];
+let skipPop = 0;
+function pushOverlay(close) { overlays.push(close); try { history.pushState({ nw: overlays.length }, ''); } catch { /* ignore */ } }
+window.addEventListener('popstate', () => { if (skipPop) { skipPop--; return; } const c = overlays.pop(); if (c) c(); });
+function backOverlay() { if (overlays.length) history.back(); }
+function dropOverlay() { if (overlays.length) { overlays.pop(); skipPop++; history.back(); } } // already closed by code
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') backOverlay(); });
+// a running battle also sits on the back stack: Back pauses and asks before throwing the run away
+let gameGuard = false;
+function guardGame() { if (!gameGuard) { gameGuard = true; pushOverlay(onGameBack); } }
+function onGameBack() {
+  gameGuard = false;
+  if (S.phase === 'day' || S.phase === 'night') { paused = true; openSheet('quit'); return; }
+  goMenu();
+}
+function goMenu() {
+  ui.over.classList.remove('show');
+  ui.title.classList.add('show');
+  RIVAL = null;
+  rv.box.classList.remove('show');
+  S.phase = 'title';
+  syncPick();
+}
+
 // ---------------------------------------------------------------- callsign
 const cleanCall = (v) => String(v || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16);
 function syncCallsign() {
@@ -1395,7 +1431,8 @@ async function setCallsign(v, quiet = false) {
   }
 }
 
-function closeSheet() { $('sheet2').className = ''; $('sheetBg').classList.remove('show'); paused = false; }
+function closeSheetNow() { $('sheet2').className = ''; $('sheetBg').classList.remove('show'); paused = false; }
+function closeSheet() { if ($('sheet2').classList.contains('show')) backOverlay(); }
 
 // ---------------------------------------------------------------- chip inspector
 const PERSONA = [

@@ -403,3 +403,9 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 .shop-item button.buy { background: linear-gradient(180deg, #ffe27a, #f5a524); color: #1a1200; }
 .shop-item button.on { background: rgba(61,220,151,.18); color: var(--green); }
 .raidamts { margin-top: calc(var(--u) * 6); }
+
+.sheet-x { position: absolute; top: calc(var(--u) * 10); right: calc(var(--u) * 12); width: calc(var(--u) * 38); height: calc(var(--u) * 38); border-radius: 50%; background: rgba(255,255,255,.08); border: 1px solid var(--line); font-size: calc(var(--u) * 24); line-height: 1; color: var(--text); display: grid; place-items: center; }
+#sheet2 > .sheet-x { display: grid; }
+#sheetGrab { cursor: pointer; padding: calc(var(--u) * 6) 0; background-clip: content-box; }
+#sheet2 .sh-title { padding-right: calc(var(--u) * 44); }
+#sheet2.quit #quitSheet { display: block; }
