@@ -2,7 +2,7 @@
 
 **Match munitions. Arm the base. Hold the line.** A mobile match-3 war game where every score is replayed on X Layer and every war machine thinks with a TapeOut circuit.
 
-- Play: `https://<id>-2-<processor>.tapekit.org/` (X Layer DeWEB; filled in at launch)
+- Play: https://nightwire-blush.vercel.app (and `https://<id>-2-<processor>.tapekit.org/` on X Layer DeWEB at launch)
 - Contracts (X Layer, chain 196): Armory processor `TBD`, NightwireEngine `TBD`, NightwireLadder `TBD`
 - Code: `TBD`
 
@@ -10,7 +10,9 @@
 
 By day you swap munitions on an 8×8 board: bullets, shells, missiles, armour and wrenches. Matches arm real weapon tiers (M2 MG → Gatling → CIWS, Mortar → Howitzer → MLRS, Stinger → Javelin → Patriot), raise an Iron Dome shield and repair the base. Match 4 for a jet strafe, an L or T for a grenade, 5 for an airstrike beacon; long chains earn airstrikes. When the moves run out, the war machine attacks and your arsenal fires back. If it survives, it holds the sky and shells you every few moves until you finish it.
 
-Modes: Solo, **VS AI** (Easy / Normal / Hard, live on the same battlefield beside you), **Daily Op** (one battlefield for everyone each UTC day), and **Duels** (a friend's exact run plays beside you as a ghost).
+Eight war machines (IRONCLAW, STORMWING, DREADNOUGHT, HIVE CARRIER, BEHEMOTH, SPECTRE, TITAN, WARDEN), each with its own brain chip and signature weapon.
+
+Modes: Solo, **World Boss raid** (OMEGA: everyone that week chips at one shared health pool), **VS AI** (Easy / Normal / Hard, live on the same battlefield beside you), **Daily Op** (one battlefield for everyone each UTC day), and **Duels** (a friend's exact run plays beside you as a ghost).
 
 ## How it uses TapeOut and X Layer
 
@@ -20,6 +22,7 @@ Modes: Solo, **VS AI** (Easy / Normal / Hard, live on the same battlefield besid
 | **Chip Inspector** | Tap the boss bar (or "Boss chips" on the title screen) to see the boss's actual netlist as a gate diagram with live signal values. Flip input bits, step one beat and watch the LATCHes remember: the same circuit that decides the next attack. |
 | **NightwireEngine (Solidity)** | A port of the game's rules engine. Given a seed and the moves, it replays the whole game, calling the Armory's `step()` for every boss decision, and returns the score. It matches the browser engine exactly on 200 of 200 test games, including random play and invalid airstrike timings. A long game costs about 32M gas to verify. |
 | **NightwireLadder** | Leaderboards that only accept replayed scores: today's Daily Op board and an all-time board. A run can be submitted once (copies are rejected). Sealed duels: the challenger commits to their moves, the opponent plays the same seed, then the challenger reveals and both runs are replayed; a challenger who over-claims forfeits. Optional stakes (capped, off by default) and daily prize pools paid 50/30/20. |
+| **NightwireRaid** | The weekly World Boss. Each raid run is replayed on chain against OMEGA (brain chip #9); its damage comes off one shared pool, contributions are ranked, and when OMEGA falls the week's top 3 raiders share the prize pool. |
 | **TapeSend** | Players who hold a TapeOut circuit can send a duel straight to a friend's circuit name (e.g. `1.2.300`). It lands in their TapeSend inbox as a public TAP-10 message; Nightwire's inbox reads it back and checks its digest against the hub. |
 | **DeWEB** | The whole game (10 files, ~160 KB, no off-chain code or fonts) is published to the X Layer site store under an Armory circuit's container, each file checked against its SHA-256. |
 
@@ -35,10 +38,11 @@ Reach: challenge links and TapeSend duels make every run a share; the Daily Op g
 
 ## Revenue
 
-1. **Daily Op prize pools and entry tournaments**: sponsors or entry fees fund the pool; the ladder pays the top 3 and keeps 5%.
-2. **Duel stakes**: optional, capped, skill-only (both players play the identical battlefield; scores are replayed). 5% of the pot.
-3. **Armory transistors**: the Armory is our TapeOut processor, so every transistor minted on it (for new boss brains and future player-designed war machines) pays its creator.
-4. Planned: cosmetic base and weapon skins, and a season pass for extra Daily Op boards.
+1. **World Boss prize pools**: a sponsored pool each week, paid to the top raiders when OMEGA falls (rolls over if it survives).
+2. **Daily Op prize pools and entry tournaments**: sponsors or entry fees fund the pool; the ladder pays the top 3 and keeps 5%.
+3. **Duel stakes**: optional, capped, skill-only (both players play the identical battlefield; scores are replayed). 5% of the pot.
+4. **Armory transistors**: the Armory is our TapeOut processor, so every transistor minted on it (for new boss brains and future player-designed war machines) pays its creator.
+5. Planned: cosmetic base and weapon skins, and a season pass for extra Daily Op boards.
 
 ## Why players pay and keep playing
 
