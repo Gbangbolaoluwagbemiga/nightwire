@@ -8,4 +8,5 @@ export const DEPLOY = {
   brainIds: [1, 2, 3, 4, 5, 6, 7, 8],
   engine: null,
   ladder: null,
+  api: 'https://api-production-fbf29f4a.up.railway.app', // Railway service (server/index.mjs)
 };

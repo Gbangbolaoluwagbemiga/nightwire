@@ -302,3 +302,6 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 #chNote { margin-top: calc(var(--u) * 10); font-size: calc(var(--u) * 12); }
 .chseg { flex-wrap: wrap; }
 .chseg button { flex: 1 0 22%; }
+#ranks .callsign { width: 100%; margin: 0 0 calc(var(--u) * 10); display: none; }
+#ranks .callsign.on { display: block; }
+#ranks .seg button { font-size: calc(var(--u) * 11.5); }

@@ -3,6 +3,7 @@ import * as E from './engine.js';
 import { makeRival, LEVELS } from './rival.js';
 import * as C from './chain.js';
 import * as TS from './tapesend.js';
+import * as API from './api.js';
 import { makeInspector } from './chipview.js';
 import { ONCHAIN } from './chips.js';
 
@@ -630,6 +631,8 @@ $('ibLoadBtn').addEventListener('click', () => { unlockAudio(); loadInbox(); });
 $('inboxLink').hidden = !C.hasWallet() && !new URLSearchParams(location.search).has('rpc');
 $('chainBtn').addEventListener('click', () => { unlockAudio(); submitToChain(); });
 document.querySelector('#rankSeg button[data-m=chain]').hidden = !C.enabled();
+document.querySelector('#rankSeg button[data-m=global]').hidden = !API.enabled();
+$('callsign').addEventListener('change', (e) => { callsign = e.target.value.replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16); e.target.value = callsign; try { localStorage.setItem('nw-name', callsign); } catch { /* ignore */ } });
 $('ranksBtn').addEventListener('click', () => { sfx.select(); showRanks(pick.kind === 'duel' ? 'solo' : pick.kind); });
 document.querySelectorAll('#rankSeg button').forEach((b) => b.addEventListener('click', () => showRanks(b.dataset.m)));
 $('ranksBack').addEventListener('click', () => { ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); });
@@ -962,6 +965,12 @@ function gameOver() {
   const isBest = S.score > prev;
   lastResult = { mode: MODE.kind, level: MODE.level, score: S.score, stage: S.stageNo, kills: S.bossesDown, t: Date.now(), seed: MODE.seed, ok, log: LOG.join(',') };
   if (S.score > 0) saveRun(lastResult);
+  $('ovGlobal').textContent = '';
+  if (ok && S.score > 0 && API.enabled() && MODE.kind !== 'duel') {
+    API.submitRun({ mode: MODE.kind, level: MODE.level, day: MODE.day, seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous' })
+      .then((r) => { $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · global rank <b>#${r.rank}</b>${MODE.kind === 'daily' ? ' today' : ''}`; })
+      .catch((e) => { $('ovGlobal').textContent = `Global board: ${String(e.message).slice(0, 80)}`; });
+  }
   if (MODE.kind === 'solo' && isBest) { S.best = S.score; try { localStorage.setItem('nw-best', String(S.best)); } catch { /* ignore */ } }
   setTimeout(() => {
     $('ovTitle').textContent = 'The base fell';
@@ -1001,7 +1010,8 @@ function gameOver() {
 }
 
 // ---------------------------------------------------------------- TapeSend (challenges between TapeOut containers)
-let myCircuit = '';
+let myCircuit = '', callsign = '';
+try { callsign = localStorage.getItem('nw-name') || ''; } catch { /* ignore */ }
 try { myCircuit = localStorage.getItem('nw-circuit') || ''; } catch { /* ignore */ }
 function openSheet(kind) {
   $('sheet2').className = `show ${kind}`;
@@ -1084,9 +1094,12 @@ async function loadInbox() {
   }
 }
 
-function shareDuel() {
+async function shareDuel() {
   if (!lastResult) return;
-  const url = duelLink();
+  let url = duelLink();
+  if (API.enabled()) {
+    try { const { id } = await API.createDuel({ seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous' }); url = `${location.origin}${location.pathname}#d=${id}`; } catch { /* keep the long link */ }
+  }
   const msg = `I scored ${fmt(S.score)} on Nightwire (stage ${S.stageNo}). Same battlefield, same supplies. Beat me:`;
   if (navigator.share) { navigator.share({ title: 'Nightwire duel', text: msg, url }).catch(() => {}); return; }
   const done = () => toast('<b>Challenge link copied.</b> Send it to a friend!', false, 2600);
@@ -1138,7 +1151,29 @@ async function showChainRanks() {
   }
 }
 
+async function showGlobalRanks() {
+  const list = $('rankList');
+  list.innerHTML = '<li class="empty">Loading the global board…</li>';
+  try {
+    const [d, s, a] = await Promise.all([API.board('daily'), API.board('solo'), API.board('ai')]);
+    const rows = (xs) => (xs.length ? xs.slice(0, 5).map((r, i) => `<li><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">${r.name.replace(/[<>&]/g, '')}<br>stage ${r.stage}${r.level ? ` · ${r.level}` : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No runs yet.</li>');
+    list.innerHTML = `<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d.rows)}<li class="sec"><span>SOLO</span></li>${rows(s.rows)}<li class="sec"><span>VS AI</span></li>${rows(a.rows)}`;
+  } catch (e) {
+    list.innerHTML = `<li class="empty">Couldn't reach the global board (${String(e.message || e).slice(0, 60)}).</li>`;
+  }
+}
+
 function showRanks(mode) {
+  $('callRow').classList.toggle('on', mode === 'global');
+  $('callsign').value = callsign;
+  if (mode === 'global') {
+    ui.ranks.classList.add('show');
+    ui.title.classList.remove('show');
+    document.querySelectorAll('#rankSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
+    $('rankNote').textContent = 'Everyone\'s runs. The server replays every move with the game engine before a score is accepted.';
+    showGlobalRanks();
+    return;
+  }
   if (mode === 'chain') {
     ui.ranks.classList.add('show');
     ui.title.classList.remove('show');
@@ -2094,10 +2129,20 @@ document.addEventListener('visibilitychange', () => {
 });
 
 resize();
-DUEL = readDuel();
-if (DUEL && !DUEL.bad) { pick.kind = 'duel'; $('duelScore').textContent = fmt(DUEL.score); }
-else if (DUEL && DUEL.bad) setTimeout(() => toast('That challenge link did not pass the replay check.', true, 3600), 600);
-syncPick();
+function applyDuel(d) {
+  DUEL = d;
+  if (DUEL && !DUEL.bad) { pick.kind = 'duel'; $('duelScore').textContent = fmt(DUEL.score); }
+  else if (DUEL && DUEL.bad) setTimeout(() => toast('That challenge link did not pass the replay check.', true, 3600), 600);
+  syncPick();
+}
+applyDuel(readDuel());
+const shortDuel = location.hash.match(/(?:^#|&)d=([\w-]{4,12})/);
+if (shortDuel && API.enabled()) { // short link: fetch it, then check it ourselves by replaying every move
+  API.getDuel(shortDuel[1]).then((d) => {
+    const check = E.replay(d.seed >>> 0, d.actions);
+    applyDuel(check.ok && check.st.over && check.st.score === d.score ? { seed: d.seed >>> 0, actions: d.actions, score: d.score, stage: d.stage } : { bad: true });
+  }).catch(() => applyDuel({ bad: true }));
+}
 RUN = E.newRun(E.randomSeed(), mkGem);
 G = RUN.G;
 S.boss = RUN.st.boss;
