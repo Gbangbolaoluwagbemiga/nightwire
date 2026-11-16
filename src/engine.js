@@ -18,7 +18,7 @@ import { load as loadChip, beat as chipBeat } from './tap02.js';
 // Each war machine's combat brain is a TapeOut NAND/LATCH chip (src/chips.js, taped out on X Layer).
 // Before every attack the boss steps its chip once; the 2 output bits pick the action.
 export const ACTIONS = ['BARRAGE', 'FOCUS FIRE', 'EMP', 'FIELD REPAIR'];
-const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive'];
+const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden'];
 const BRAINS = BRAIN_KEYS.map((k) => loadChip(CHIPS[k].netlist, CHIPS[k].nIn, CHIPS[k].nOut));
 export const brainOf = (type) => ({ key: BRAIN_KEYS[type], chip: CHIPS[BRAIN_KEYS[type]], circuit: BRAINS[type] });
 // chip inputs: boss HP quarter (2 bits), base HP quarter (2), shield up (1), rage (2, capped at 3)
@@ -29,13 +29,17 @@ export function brainInputs(hp, max, base, baseMax, shield, rage) {
 // tier thresholds: shots for guns, points for shield/repair
 export const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 3 ? (v >= 40 ? 2 : v >= 20 ? 1 : 0) : (v >= 16 ? 2 : v >= 8 ? 1 : 0));
 // each war machine's signature weapon: it unleashes this once your arsenal is spent and it is still standing
-export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES'];
+export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES', 'SIEGE SHELLS', 'CARPET BOMBING', 'PLASMA MORTAR', 'ORBITAL LANCE'];
 export const ONSLAUGHT_HITS = 5;
 export const BOSSES = [
   { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0 },
   { name: 'STORMWING', role: 'attack gunship', color: '#9B8CFF', type: 1 },
   { name: 'DREADNOUGHT', role: 'armoured airship', color: '#45B4E8', type: 2 },
   { name: 'HIVE CARRIER', role: 'drone carrier', color: '#FF4FD8', type: 3 },
+  { name: 'BEHEMOTH', role: 'siege tank', color: '#C9A227', type: 4 },
+  { name: 'SPECTRE', role: 'stealth bomber', color: '#7CF2E2', type: 5 },
+  { name: 'TITAN', role: 'spider walker', color: '#FF8F3D', type: 6 },
+  { name: 'WARDEN', role: 'orbital platform', color: '#F2F2FF', type: 7 },
 ];
 
 // ---------------------------------------------------------------- seeded randomness (mulberry32, state is one int)
@@ -70,7 +74,7 @@ export function makeBoss(stageNo) {
   const mk = Math.floor((stageNo - 1) / BOSSES.length);
   let hp = 1300; // tenths; x1.60 per stage
   for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 160, 100);
-  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
+  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, age: 0, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
 export function newRun(seed, mk = plain) {

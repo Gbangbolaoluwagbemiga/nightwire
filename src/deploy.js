@@ -5,7 +5,7 @@ export const DEPLOY = {
   rpc: 'https://rpc.xlayer.tech',
   explorer: 'https://www.oklink.com/xlayer',
   armory: null, // TapeOut processor holding the war-machine brain chips
-  brainIds: [1, 2, 3, 4],
+  brainIds: [1, 2, 3, 4, 5, 6, 7, 8],
   engine: null,
   ladder: null,
 };

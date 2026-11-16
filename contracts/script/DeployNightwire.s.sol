@@ -12,7 +12,7 @@ contract DeployNightwire is Script {
     function run() external {
         address armory = vm.envAddress("ARMORY");
         vm.startBroadcast();
-        NightwireEngine engine = new NightwireEngine(ICircuits(armory), [uint256(1), 2, 3, 4]);
+        NightwireEngine engine = new NightwireEngine(ICircuits(armory), [uint256(1), 2, 3, 4, 5, 6, 7, 8]);
         NightwireLadder ladder = new NightwireLadder(engine);
         vm.stopBroadcast();
         console.log("engine", address(engine));

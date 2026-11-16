@@ -79,6 +79,13 @@ function orb(x, y, color, gi, val, delay) {
   const tx = wbarX(gi) + 18, ty = WBAR_Y + WBAR_H / 2;
   Object.assign(o, { on: true, x, y, sx: x, sy: y, tx, ty, cx: x + (Math.random() - 0.5) * 160, cy: Math.min(y, ty) - 40 - Math.random() * 80, t: -delay, d: 0.45 + Math.random() * 0.2, color, gi, val });
 }
+// wreckage: spinning chunks thrown out and falling
+function debris(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 200;
+    S.fx.push({ type: 'debris', x: x + (Math.random() - 0.5) * 40, y: y + (Math.random() - 0.5) * 30, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 14, w: 5 + Math.random() * 10, h: 3 + Math.random() * 6, color: Math.random() < 0.5 ? color : '#59626b', t: 0, d: 1.6 });
+  }
+}
 function text(x, y, str, color, size = 14, life = 0.9, rise = 36) {
   if (S.texts.length > 30) S.texts.shift();
   S.texts.push({ x, y, str, color, size, t: 0, life, rise });
@@ -1010,6 +1017,10 @@ const PERSONA = [
   'Hunter: knocks out a raised shield with an EMP, then follows up with focus fire. One LATCH remembers the EMP.',
   'Fortress: repairs itself once when below half health, and focus-fires once enraged. One LATCH remembers the repair.',
   'Swarm: alternates barrage and focus fire, EMPs shields when enraged, keeps one emergency repair. Two LATCHes.',
+  'Siege: focus fire every other shot; once rage reaches 2 it EMPs any raised shield. One LATCH keeps the rhythm.',
+  'Stealth: one cloaked repair as soon as it drops below 75%, then EMPs every raised shield. One LATCH remembers the cloak.',
+  'Gait: barrage, barrage, focus, in step with its six legs; always focus fire when critical. Two LATCHes count the steps.',
+  'Orbital: charges its lance every other beat; when critical it repairs on the off-beats. One LATCH is the charge.',
 ];
 const inspector = makeInspector($('chipSheet'), {
   onTap: () => sfx.select(),
@@ -1274,8 +1285,15 @@ function update(dt) {
     b.recoil = Math.max(0, b.recoil - dt * 4);
     b.lag += (b.hp - b.lag) * Math.min(1, dt * 3);
     if (Math.random() < dt * (b.hp / b.max < 0.5 ? 6 : 0)) smoke(S.bp.x + (Math.random() - 0.5) * 60 * S.bp.s, S.bp.y - 10 * S.bp.s, 1); // damaged: smoking
+    b.age = (b.age || 0) + dt;
+    if (b.dying < 0 && b.hp / b.max < 0.5 && Math.random() < dt * (b.hp / b.max < 0.25 ? 7 : 2.5)) { // damaged: sparks, then fire
+      const x = S.bp.x + (Math.random() - 0.5) * 90 * S.bp.s, y = S.bp.y + (Math.random() - 0.5) * 50 * S.bp.s;
+      spark(x, y, b.hp / b.max < 0.25 ? '#ffb347' : '#FFE08A', 5, 120, 2, 0.4, 200);
+      if (b.hp / b.max < 0.25) { smoke(x, y, 2); if (Math.random() < 0.3) S.fx.push({ type: 'boom', x, y, r: 0, max: 18, t: 0, d: 0.3 }); }
+    }
     if (b.dying >= 0) {
       b.dying -= dt;
+      if (Math.random() < dt * 8) debris(S.bp.x, S.bp.y, b.color, 1);
       if (Math.random() < dt * 22) {
         const x = S.bp.x + (Math.random() - 0.5) * 150, y = S.bp.y + (Math.random() - 0.5) * 90;
         S.fx.push({ type: 'boom', x, y, r: 0, max: 40 + Math.random() * 40, t: 0, d: 0.45 });
@@ -1287,6 +1305,7 @@ function update(dt) {
         spark(S.bp.x, S.bp.y, '#ffffff', 60, 320, 3.4, 0.9);
         spark(S.bp.x, S.bp.y, b.color, 60, 260, 3, 1.0);
         S.fx.push({ type: 'boom', x: S.bp.x, y: S.bp.y, r: 0, max: 230, t: 0, d: 0.7 });
+        debris(S.bp.x, S.bp.y, b.color, lowPower ? 10 : 22);
         S.shake = 16;
         bossDefeated();
       }
@@ -1570,6 +1589,7 @@ function bossShape(type, t, white, col, recoil) {
   const steel = white ? '#fff' : '#59626b', dark = white ? '#fff' : '#2b3036', hi = white ? '#fff' : '#8a949e', acc = white ? '#fff' : col;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  if (type >= 4) return bossShape2(type, t, white, col, recoil, steel, dark, hi, acc);
   if (type === 0) { // assault mech walker
     const step = Math.sin(t * 3);
     for (const sd of [-1, 1]) {
@@ -1634,6 +1654,86 @@ function bossShape(type, t, white, col, recoil) {
   return { ex: 0, ey: 18, er: 9 };
 }
 
+// the second wave of war machines
+function bossShape2(type, t, white, col, recoil, steel, dark, hi, acc) {
+  if (type === 4) { // BEHEMOTH: siege tank with rolling treads and a sweeping main gun
+    ctx.fillStyle = dark; rr(ctx, -94, 22, 188, 34, 16); ctx.fill();
+    for (let j = 0; j < 6; j++) {
+      const wx = -72 + j * 29;
+      ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(wx, 39, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(wx, 39); ctx.rotate(t * 4); ctx.fillStyle = dark; ctx.fillRect(-1.6, -9, 3.2, 18); ctx.fillRect(-9, -1.6, 18, 3.2); ctx.restore();
+    }
+    ctx.fillStyle = hi;
+    for (let x = -88 + ((t * 40) % 14); x < 86; x += 14) { ctx.fillRect(x, 21, 6, 3); ctx.fillRect(x, 54, 6, 3); }
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.moveTo(-98, 24); ctx.lineTo(-70, -6); ctx.lineTo(74, -6); ctx.lineTo(102, 24); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = acc; ctx.fillRect(-62, 8, 124, 5);
+    ctx.fillStyle = dark; for (let j = -2; j <= 2; j++) ctx.fillRect(j * 22 - 6, -2, 12, 6);
+    ctx.fillStyle = hi; ctx.beginPath(); ctx.ellipse(0, -8, 44, 24, 0, Math.PI, 0); ctx.fill();
+    ctx.save(); ctx.translate(0, -14); ctx.rotate(Math.sin(t * 0.7) * 0.45);
+    ctx.fillStyle = dark; ctx.fillRect(-6, 0, 12, 76 - recoil * 16);
+    ctx.fillStyle = acc; ctx.fillRect(-8.5, 66 - recoil * 16, 17, 9);
+    ctx.restore();
+    return { ex: 0, ey: -20, er: 9 };
+  }
+  if (type === 5) { // SPECTRE: stealth flying wing that shimmers in and out of its cloak
+    const keep = ctx.globalAlpha;
+    ctx.globalAlpha = keep * (white ? 1 : 0.5 + 0.5 * Math.abs(Math.sin(t * 0.9)));
+    const wing = () => { ctx.beginPath(); ctx.moveTo(0, -32); ctx.lineTo(124, 24); ctx.lineTo(84, 30); ctx.lineTo(50, 16); ctx.lineTo(26, 28); ctx.lineTo(0, 18); ctx.lineTo(-26, 28); ctx.lineTo(-50, 16); ctx.lineTo(-84, 30); ctx.lineTo(-124, 24); ctx.closePath(); };
+    wing(); ctx.fillStyle = white ? '#fff' : '#1c232a'; ctx.fill();
+    ctx.strokeStyle = acc; ctx.lineWidth = 2; ctx.stroke();
+    if (!white) { // cloak shimmer sweeping across
+      ctx.save(); wing(); ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = rgba(col, 0.35);
+      const band = ((t * 90) % 300) - 150;
+      ctx.beginPath(); ctx.moveTo(band, -40); ctx.lineTo(band + 14, -40); ctx.lineTo(band + 44, 40); ctx.lineTo(band + 30, 40); ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = hi; ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(14, 2); ctx.lineTo(-14, 2); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = keep;
+    return { ex: 0, ey: -6, er: 6 };
+  }
+  if (type === 6) { // TITAN: six-legged spider walker with a plasma mortar on its back
+    for (let j = 0; j < 6; j++) {
+      const sd = j < 3 ? -1 : 1, k = j % 3, ph = t * 3.2 + k * 2.1 + (sd > 0 ? Math.PI : 0);
+      const lift = Math.max(0, Math.sin(ph)) * 10;
+      const hx = sd * (26 + k * 6), hy = k * 9;
+      const kx = sd * (70 + k * 10), ky = -28 + k * 14 - lift;
+      const fx = sd * (94 + k * 8) + Math.cos(ph) * 6 * sd, fy = 54 + k * 6 - lift * 0.6;
+      ctx.strokeStyle = steel; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.stroke();
+      ctx.strokeStyle = dark; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+      ctx.fillStyle = acc; ctx.beginPath(); ctx.arc(kx, ky, 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, 6, 48, 30, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(0, -14, 30, 16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = hi; ctx.fillRect(-9, -44 + recoil * 8, 18, 28);
+    ctx.fillStyle = white ? '#fff' : rgba(col, 0.5 + 0.5 * Math.sin(t * 5));
+    ctx.beginPath(); ctx.arc(0, -46 + recoil * 8, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = white ? '#fff' : '#ff5050';
+    for (const [ex, ey] of [[-14, 18], [14, 18], [-8, 26], [8, 26]]) { ctx.beginPath(); ctx.arc(ex, ey, 2.4, 0, Math.PI * 2); ctx.fill(); }
+    return { ex: 0, ey: 10, er: 8 };
+  }
+  // WARDEN: orbital platform with turning solar wings and a lance emitter charging underneath
+  const tilt = Math.cos(t * 0.8);
+  for (const sd of [-1, 1]) {
+    ctx.save(); ctx.translate(sd * 40, 0); ctx.scale(1, 0.35 + 0.65 * Math.abs(tilt));
+    ctx.fillStyle = white ? '#fff' : '#1e3a66'; ctx.fillRect(sd > 0 ? 0 : -76, -18, 76, 36);
+    ctx.strokeStyle = white ? '#fff' : '#6fa8ff'; ctx.lineWidth = 1;
+    for (let gx = 0; gx <= 76; gx += 19) { ctx.beginPath(); ctx.moveTo((sd > 0 ? 0 : -76) + gx, -18); ctx.lineTo((sd > 0 ? 0 : -76) + gx, 18); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(sd > 0 ? 0 : -76, 0); ctx.lineTo(sd > 0 ? 76 : 0, 0); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.strokeStyle = steel; ctx.lineWidth = 4; ctx.setLineDash([10, 6]); ctx.lineDashOffset = -t * 30;
+  ctx.beginPath(); ctx.ellipse(0, 0, 46, 14, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = hi; ctx.beginPath(); ctx.arc(-8, -8, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-14, 20); ctx.lineTo(14, 20); ctx.lineTo(5, 46 - recoil * 6); ctx.lineTo(-5, 46 - recoil * 6); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = white ? '#fff' : rgba(col, 0.4 + 0.6 * Math.abs(Math.sin(t * 3)));
+  ctx.beginPath(); ctx.arc(0, 48 - recoil * 6, 5, 0, Math.PI * 2); ctx.fill();
+  return { ex: 0, ey: 2, er: 9 };
+}
+
+const FLYERS = new Set([1, 2, 3, 5, 7]);
 function drawBoss() {
   const b = S.boss;
   if (!b) return;
@@ -1647,15 +1747,41 @@ function drawBoss() {
   ctx.globalAlpha = 0.45 * (0.5 + S.nb * 0.5);
   const gsz = 320 * s;
   ctx.drawImage(SPR.dot[b.color], x - gsz / 2, y + bob - gsz / 2, gsz, gsz);
+  if (b.rage > 0 && b.dying < 0) { // enraged: a pulsing red aura
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = (0.25 + 0.1 * Math.min(3, b.rage)) * (0.6 + 0.4 * Math.sin(t * 5));
+    const rs = (260 + 30 * Math.min(3, b.rage)) * s;
+    ctx.drawImage(SPR.red, x - rs / 2, y + bob - rs / 2, rs, rs);
+    ctx.globalCompositeOperation = 'source-over';
+  }
   ctx.globalAlpha = S.phase === 'night' || b.dying >= 0 || b.present ? 1 : 0.85;
   ctx.translate(x + sh, y + bob + sh);
   ctx.scale(s, s);
+  const hurt = 1 - b.hp / b.max;
+  if (FLYERS.has(b.type)) {
+    ctx.rotate(Math.sin(t * 2.1) * 0.05 * hurt); // a damaged flyer wobbles
+    ctx.globalCompositeOperation = 'lighter'; // thrusters
+    for (const tx of [-34, 34]) { const f = 14 + Math.random() * 8; ctx.drawImage(SPR.flame, tx - f / 2, 30, f, f * 1.6); }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  const warp = Math.min(1, (b.age || 0) / 1.3); // entrance: materialises top to bottom behind a scanline
+  if (warp < 1) { ctx.save(); ctx.beginPath(); ctx.rect(-180, -140, 360, 280 * warp); ctx.clip(); }
   const eye = bossShape(b.type, t, false, b.color, b.recoil);
   if (b.flash > 0) {
     const keep = ctx.globalAlpha;
     ctx.globalAlpha = keep * 0.5 * Math.min(1, b.flash / 0.08);
     bossShape(b.type, t, true, b.color, b.recoil);
     ctx.globalAlpha = keep;
+  }
+  if (warp < 1) {
+    ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = rgba(b.color, 0.9);
+    ctx.fillRect(-180, -140 + 280 * warp - 2, 360, 3);
+    ctx.globalAlpha = 0.25 * (1 - warp);
+    ctx.fillRect(-180, -140, 360, 280 * warp);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
   // targeting sensor: glows when locking on
   ctx.fillStyle = '#111418';
@@ -1921,6 +2047,15 @@ function drawFx(f) {
     ctx.drawImage(SPR.white, f.x - f.r * 0.35, f.y - f.r * 0.35, f.r * 0.7, f.r * 0.7);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+  } else if (f.type === 'debris') {
+    const e = Math.max(0, f.t) * f.d;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (1 - f.t) * 2);
+    ctx.translate(f.x + f.vx * e, f.y + f.vy * e + 260 * e * e);
+    ctx.rotate(f.rot + f.vr * e);
+    ctx.fillStyle = f.color;
+    ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
+    ctx.restore();
   } else if (f.type === 'shieldHit') {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';

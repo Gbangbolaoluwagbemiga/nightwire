@@ -4,7 +4,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {NightwireEngine} from "../src/NightwireEngine.sol";
 import {ICircuits} from "../src/ITapeOut.sol";
 contract Prof is NightwireEngine {
-    constructor(ICircuits a) NightwireEngine(a, [uint256(1), 2, 3, 4]) {}
+    constructor(ICircuits a) NightwireEngine(a, [uint256(1), 2, 3, 4, 5, 6, 7, 8]) {}
     function profile(uint32 seed, bytes calldata actions) external view returns (uint256 setup, uint256 moves, uint256 nMoves, uint256 nights, uint256 nNights, uint256 maxMove, uint256 shuffles) {
         uint256 g0 = gasleft();
         G memory g = _newRun(seed);
@@ -36,7 +36,7 @@ contract Prof is NightwireEngine {
 contract Profile is Test {
     function test_profile() public {
         vm.createSelectFork("http://127.0.0.1:8547");
-        Prof p = new Prof(ICircuits(0xb57b56034e2dc25161e2512CfC40b24EA3bee1Fb));
+        Prof p = new Prof(ICircuits(0x1900801e311184063b9d9C119C9D98AA4950E12c));
         string memory j = vm.readFile(string.concat(vm.projectRoot(), "/test/fixtures.json"));
         for (uint256 gi; gi < 6; gi++) {
             string memory q = string.concat(".games[", vm.toString(gi * 9), "]");

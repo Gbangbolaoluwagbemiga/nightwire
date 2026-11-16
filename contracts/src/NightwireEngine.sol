@@ -26,13 +26,13 @@ contract NightwireEngine {
     uint32 constant BOSS_FLIGHT = 700;
 
     ICircuits public immutable armory;
-    uint256[4] public brainIds; // ironclaw, stormwing, dreadnought, hive
-    uint8[4] internal brainStateBits;
+    uint256[8] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden
+    uint8[8] internal brainStateBits;
 
-    constructor(ICircuits armory_, uint256[4] memory ids) {
+    constructor(ICircuits armory_, uint256[8] memory ids) {
         armory = armory_;
         brainIds = ids;
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 8; i++) {
             (uint32 nIn, uint32 nOut, uint32 nState,) = armory_.circuitInfo(ids[i]);
             require(nIn == 7 && nOut == 2 && nState <= 8, "brain pins");
             brainStateBits[i] = uint8(nState);
@@ -120,7 +120,7 @@ contract NightwireEngine {
         g.maxHp = uint32(hp);
         g.rage = 0;
         g.present = false;
-        g.btype = uint8((g.stageNo - 1) % 4);
+        g.btype = uint8((g.stageNo - 1) % 8);
         g.brain = 0;
     }
 

@@ -300,3 +300,5 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 #stage #chipCv { position: static; display: block; width: 100%; height: auto; aspect-ratio: 350 / 300; margin: calc(var(--u) * 10) 0; border-radius: calc(var(--u) * 14); background: rgba(0,0,0,.35); border: 1px solid var(--line); touch-action: manipulation; }
 .chseg button { font-size: calc(var(--u) * 11); font-family: "JetBrains Mono", monospace; }
 #chNote { margin-top: calc(var(--u) * 10); font-size: calc(var(--u) * 12); }
+.chseg { flex-wrap: wrap; }
+.chseg button { flex: 1 0 22%; }
