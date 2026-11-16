@@ -5,6 +5,7 @@ import * as C from './chain.js';
 import * as TS from './tapesend.js';
 import * as API from './api.js';
 import { makeInspector } from './chipview.js';
+import * as F from './forge.js';
 import { ONCHAIN } from './chips.js';
 
 // ================================================================ layout (logical units, portrait 390 x 860)
@@ -29,7 +30,8 @@ const wbarX = (i) => 8 + i * 75;
 
 // ================================================================ DOM
 const $ = (id) => document.getElementById(id);
-const stage = $('stage'), cv = $('game'), ctx = cv.getContext('2d');
+const stage = $('stage'), cv = $('game');
+let ctx = cv.getContext('2d'); // swapped briefly to draw the Forge preview with the same boss art
 const bgDay = $('bgDay'), bgNight = $('bgNight');
 const ui = {
   stage: $('dayTxt'), score: $('scoreTxt'), moves: $('movesTxt'), mute: $('muteBtn'), toast: $('toast'),
@@ -568,7 +570,7 @@ cv.addEventListener('pointerdown', (e) => {
   const pb = pt(e);
   if (pb.y < 104 && S.boss && (S.phase === 'day' || S.phase === 'night')) { // the boss bar: inspect its brain chip
     const b = S.boss, live = S.phase === 'night' && NIGHT && S.chip ? S.chip.state : b.brain;
-    openChips(b.type, { state: live, inputs: E.brainInputs(b.hp, b.max, S.base, S.baseMax, S.shield, b.rage) });
+    openChips(b.type, { state: live, inputs: E.brainInputs(b.hp, b.max, S.base, S.baseMax, S.shield, b.rage) }, S.forge ? S.forge.circuit : null, b.name);
     return;
   }
   if (S.phase !== 'day' || S.bstate !== 'idle') return;
@@ -598,6 +600,117 @@ cv.addEventListener('pointerup', () => {
   if (S.sel) sfx.select();
 });
 cv.addEventListener('pointercancel', () => { S.press = null; });
+// ---------------------------------------------------------------- Boss Forge
+let forgeDesign = { ...F.DEFAULT_DESIGN };
+try { forgeDesign = F.normalize(JSON.parse(localStorage.getItem('nw-forge') || 'null') || F.DEFAULT_DESIGN); } catch { /* default */ }
+let forgeThreat = null, threatJob = 0, forgeCtx = null;
+const BEAT_LABEL = ['BARRAGE', 'FOCUS', 'EMP'];
+const threatLabel = (st) => (st >= 9.5 ? 'Soft' : st >= 8.5 ? 'Fair' : st >= 7.5 ? 'Tough' : 'Brutal');
+function saveForge() { try { localStorage.setItem('nw-forge', JSON.stringify(forgeDesign)); } catch { /* ignore */ } }
+function renderForge() {
+  const d = forgeDesign;
+  $('fgName').value = d.name;
+  document.querySelectorAll('#fgHull button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === d.hull));
+  document.querySelectorAll('#fgRepair button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === d.repairBelow));
+  document.querySelectorAll('#fgEmp button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === d.emp));
+  document.querySelectorAll('#fgColor button').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === d.color));
+  document.querySelectorAll('#fgBeats button').forEach((b) => { const a = d.rhythm[Number(b.dataset.b)]; b.dataset.a = a; b.innerHTML = `BEAT ${Number(b.dataset.b) + 1}<br>${BEAT_LABEL[a]}`; });
+  $('fgWeak').classList.toggle('on', d.focusWeakBase);
+  $('fgRage').classList.toggle('on', d.focusEnraged);
+  const chip = F.compile(d);
+  $('fgStats').innerHTML = `Brain chip: <b>${chip.nand} NAND + ${chip.latch} LATCH</b> (${(chip.netlist.length - 2) / 2}-byte TapeOut netlist) · Threat: <b id="fgThreat">${forgeThreat ? `${threatLabel(forgeThreat)} (AI reaches stage ${forgeThreat.toFixed(1)})` : 'testing…'}</b>`;
+  computeThreat();
+}
+function computeThreat() { // a few AI campaigns against the design, in small slices so the screen stays smooth
+  const job = ++threatJob, d = { ...forgeDesign };
+  forgeThreat = null;
+  let done = 0, sum = 0;
+  const runOne = () => {
+    if (job !== threatJob) return;
+    const R = makeRival(E.forgeSeed(d) + done, 'normal', null, { forge: d });
+    R.fastForward(() => {
+      if (job !== threatJob) return;
+      sum += R.st.stageNo; done++;
+      if (done < 3) setTimeout(runOne, 0);
+      else { forgeThreat = sum / 3; const el = $('fgThreat'); if (el) el.textContent = `${threatLabel(forgeThreat)} (AI reaches stage ${forgeThreat.toFixed(1)})`; }
+    });
+  };
+  setTimeout(runOne, 120);
+}
+function drawForgePreview() { // the same boss art, on the Forge canvas
+  const fc = $('forgeCv');
+  if (!forgeCtx) {
+    const r = fc.getBoundingClientRect();
+    fc.width = Math.round(r.width * dpr); fc.height = Math.round(r.height * dpr);
+    forgeCtx = fc.getContext('2d');
+  }
+  const keep = ctx;
+  ctx = forgeCtx;
+  const w = fc.width, h = fc.height, sc = Math.min(w / 300, h / 150) * 0.9;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.translate(w / 2, h / 2 + Math.sin(S.time * 1.8) * 4 * sc);
+  ctx.scale(sc, sc);
+  const col = F.COLORS[forgeDesign.color];
+  const eye = bossShape(forgeDesign.hull, S.time, false, col, 0);
+  ctx.fillStyle = '#111418'; ctx.beginPath(); ctx.arc(eye.ex, eye.ey, eye.er, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ff5050'; ctx.beginPath(); ctx.arc(eye.ex, eye.ey, eye.er * 0.45, 0, Math.PI * 2); ctx.fill();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx = keep;
+}
+function openForge() {
+  ui.title.classList.remove('show');
+  $('forge').classList.add('show');
+  $('forge').scrollTop = 0;
+  forgeCtx = null;
+  renderForge();
+  loadMachines();
+}
+function fightForge(design, id = null, author = '') {
+  $('forge').classList.remove('show');
+  unlockAudio();
+  newGame({ kind: 'forge', level: null, seed: E.forgeSeed(design), forge: { design, id, author } });
+}
+async function loadMachines() {
+  const list = $('fgList');
+  if (!API.enabled()) { list.innerHTML = '<li class="empty">Community machines need the online board.</li>'; return; }
+  list.innerHTML = '<li class="empty">Loading…</li>';
+  try {
+    const { machines } = await API.listMachines();
+    list.innerHTML = machines.length ? machines.slice(0, 12).map((m, i) => `<li><span class="rm" style="text-align:left"><b style="color:${F.COLORS[m.design.color]}">${m.design.name.replace(/[<>&]/g, '')}</b> by ${String(m.author).replace(/[<>&]/g, '')}<br>${m.gates} gates · ${m.threat ? threatLabel(m.threat) : 'untested'} · ${m.plays} fights${m.best ? ` · best ${fmt(m.best)}` : ''}</span><button class="play" data-i="${i}">Fight</button></li>`).join('')
+      : '<li class="empty">No machines yet. Publish the first one.</li>';
+    list.querySelectorAll('.play').forEach((b) => b.addEventListener('click', () => { const m = machines[Number(b.dataset.i)]; fightForge(m.design, m.id, m.author); }));
+  } catch (e) { list.innerHTML = `<li class="empty">Couldn't load (${String(e.message).slice(0, 60)}).</li>`; }
+}
+F.COLORS.forEach((c, i) => { const b = document.createElement('button'); b.dataset.v = i; b.style.background = c; b.setAttribute('aria-label', `colour ${i + 1}`); $('fgColor').append(b); });
+const forgeEdit = (fn) => { fn(forgeDesign); forgeDesign = F.normalize(forgeDesign); saveForge(); sfx.select(); renderForge(); };
+document.querySelectorAll('#fgHull button').forEach((b) => b.addEventListener('click', () => forgeEdit((d) => { d.hull = Number(b.dataset.v); })));
+document.querySelectorAll('#fgColor button').forEach((b) => b.addEventListener('click', () => forgeEdit((d) => { d.color = Number(b.dataset.v); })));
+document.querySelectorAll('#fgRepair button').forEach((b) => b.addEventListener('click', () => forgeEdit((d) => { d.repairBelow = Number(b.dataset.v); })));
+document.querySelectorAll('#fgEmp button').forEach((b) => b.addEventListener('click', () => forgeEdit((d) => { d.emp = Number(b.dataset.v); })));
+document.querySelectorAll('#fgBeats button').forEach((b) => b.addEventListener('click', () => forgeEdit((d) => { const k = Number(b.dataset.b); d.rhythm[k] = (d.rhythm[k] + 1) % 3; })));
+$('fgWeak').addEventListener('click', () => forgeEdit((d) => { d.focusWeakBase = !d.focusWeakBase; }));
+$('fgRage').addEventListener('click', () => forgeEdit((d) => { d.focusEnraged = !d.focusEnraged; }));
+$('fgName').addEventListener('change', (e) => forgeEdit((d) => { d.name = e.target.value; }));
+$('forgeBtn').addEventListener('click', () => { unlockAudio(); sfx.select(); openForge(); });
+$('fgBack').addEventListener('click', () => { $('forge').classList.remove('show'); ui.title.classList.add('show'); });
+$('fgTest').addEventListener('click', () => fightForge({ ...forgeDesign }));
+$('fgInspect').addEventListener('click', () => { const c = F.compile(forgeDesign); openChips(forgeDesign.hull, null, c.circuit, forgeDesign.name); });
+$('fgPublish').addEventListener('click', async () => {
+  const st = $('fgSt');
+  if (!API.enabled()) { st.textContent = 'Publishing needs the online board.'; return; }
+  try {
+    st.textContent = 'Publishing…';
+    const { id } = await API.publishMachine(forgeDesign, callsign || 'Anonymous', forgeThreat);
+    const url = `${location.origin}${location.pathname}#forge=${id}`;
+    const msg = `I built a war machine in Nightwire: ${forgeDesign.name}. Its brain is a real NAND/LATCH chip. Can you beat it?`;
+    st.innerHTML = `<span class="ok">✓ Published.</span> Share: <a href="${url}">${url.replace(/^https?:\/\//, '')}</a>`;
+    if (navigator.share) navigator.share({ title: 'Nightwire war machine', text: msg, url }).catch(() => {});
+    else if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(`${msg} ${url}`).catch(() => {});
+    loadMachines();
+  } catch (e) { st.innerHTML = `<span class="bad">✗</span> ${String(e.message).slice(0, 100)}`; }
+});
+
 // title: pick a mode
 let pick = { kind: 'solo', level: 'normal' };
 try { Object.assign(pick, JSON.parse(localStorage.getItem('nw-pick') || '{}')); } catch { /* ignore */ }
@@ -668,7 +781,7 @@ ui.mute.addEventListener('click', () => { unlockAudio(); ui.mute.classList.toggl
 const todaySeed = () => E.dailySeed(E.dayNumber());
 function newGame(mode = MODE) {
   MODE = { ...mode, seed: mode.seed || E.randomSeed() };
-  const rules = { raid: MODE.kind === 'raid', hard: MODE.kind === 'ai' && MODE.level === 'hard' };
+  const rules = { raid: MODE.kind === 'raid', hard: (MODE.kind === 'ai' && MODE.level === 'hard') || (MODE.kind === 'duel' && !!MODE.ghost.hard), forge: MODE.kind === 'forge' ? MODE.forge.design : null };
   MODE.rules = rules;
   RUN = E.newRun(MODE.seed, mkGem, rules);
   Object.assign(S, RUN.st, {
@@ -679,7 +792,7 @@ function newGame(mode = MODE) {
   G = RUN.G;
   LOG = [];
   NIGHT = null;
-  RIVAL = MODE.kind === 'ai' ? makeRival(MODE.seed, MODE.level, null, rules) : MODE.kind === 'duel' ? makeRival(MODE.seed, 'ghost', MODE.ghost.actions) : null;
+  RIVAL = MODE.kind === 'ai' ? makeRival(MODE.seed, MODE.level, null, rules) : MODE.kind === 'duel' ? makeRival(MODE.seed, 'ghost', MODE.ghost.actions, rules) : null;
   rv.box.classList.toggle('show', !!RIVAL);
   rvLast = {};
   if (RIVAL) rv.name.textContent = MODE.kind === 'duel' ? 'FRIEND' : `AI · ${LEVELS[MODE.level].label}`;
@@ -705,6 +818,7 @@ function startDay(first = false) {
       : MODE.kind === 'duel' ? `Your friend scored <b>${MODE.ghost.score}</b> on this exact battlefield. Beat it!`
         : MODE.kind === 'daily' ? `<b>Daily Op</b>: everyone fights this battlefield today.`
           : MODE.kind === 'raid' ? `<b>OMEGA</b> is over the city. Hit it as hard as you can before your base falls.`
+            : MODE.kind === 'forge' ? `<b>${S.boss.name}</b>${MODE.forge.author ? ` by ${MODE.forge.author}` : ''} attacks. Tap its health bar to read its brain.`
           : `<b>${S.boss.name}</b> is inbound. Swap supplies to <b>match 3</b> and arm the base.`;
     setTimeout(() => toast(msg, false, 3600), 500);
   }
@@ -977,7 +1091,7 @@ const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const b64 = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64 = (s) => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
 function duelLink() {
-  const data = { s: MODE.seed, sc: S.score, st: S.stageNo, a: LOG.join(',') };
+  const data = { s: MODE.seed, sc: S.score, st: S.stageNo, a: LOG.join(','), ...(MODE.rules && MODE.rules.hard ? { h: 1 } : {}) };
   return `${location.origin}${location.pathname}#duel=${b64(JSON.stringify(data))}`;
 }
 // a friend's challenge link: their seed and every move they made, checked by replaying it before you fight it
@@ -987,9 +1101,9 @@ function readDuel() {
   try {
     const d = JSON.parse(unb64(m[1]));
     const actions = d.a ? d.a.split(',') : [];
-    const check = E.replay(d.s >>> 0, actions);
+    const check = E.replay(d.s >>> 0, actions, { hard: !!d.h });
     if (!check.ok || !check.st.over || check.st.score !== d.sc) return { bad: true };
-    return { seed: d.s >>> 0, actions, score: d.sc, stage: d.st };
+    return { seed: d.s >>> 0, actions, score: d.sc, stage: d.st, hard: !!d.h };
   } catch { return { bad: true }; }
 }
 
@@ -1008,7 +1122,13 @@ function gameOver() {
   lastResult = { mode: MODE.kind, level: MODE.level, score: S.score, stage: S.stageNo, kills: S.bossesDown, t: Date.now(), seed: MODE.seed, ok, log: LOG.join(',') };
   if (S.score > 0) saveRun(lastResult);
   $('ovGlobal').textContent = '';
-  if (ok && S.damage > 0 && API.enabled() && MODE.kind === 'raid') {
+  if (MODE.kind === 'forge') {
+    if (ok && S.score > 0 && API.enabled() && MODE.forge.id) {
+      API.submitForgeRun(MODE.forge.id, LOG, callsign || 'Anonymous')
+        .then((r) => { $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · #${r.rank} against ${S.boss ? MODE.forge.design.name : 'this machine'} · ${r.plays} fights so far`; })
+        .catch((e) => { $('ovGlobal').textContent = `Forge board: ${String(e.message).slice(0, 80)}`; });
+    } else if (!MODE.forge.id) $('ovGlobal').textContent = 'Test fight. Publish your machine so others can fight it.';
+  } else if (ok && S.damage > 0 && API.enabled() && MODE.kind === 'raid') {
     API.submitRaid({ week: MODE.week, actions: LOG, name: callsign || 'Anonymous' })
       .then((r) => { raidInfo = r.raid; const left = Math.max(0, r.raid.poolHp - r.raid.dealt); $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · raider <b>#${r.rank}</b> this week · OMEGA ${r.raid.down ? '<b>is DOWN</b>' : `has <b>${fmt(left / 10)} HP</b> left`}`; })
       .catch((e) => { $('ovGlobal').textContent = `Raid: ${String(e.message).slice(0, 80)}`; });
@@ -1032,7 +1152,7 @@ function gameOver() {
       ? `<span class="ok">✓</span> Score verified by replaying all ${LOG.length} actions · seed ${MODE.seed.toString(16).toUpperCase()}`
       : `<span class="bad">✗</span> Replay mismatch (${check.reason || (!check.st.over ? 'replay did not end the run' : `replay gave ${check.st.score}`)})`;
     $('ovVs').classList.toggle('on', !!RIVAL);
-    $('chainRow').classList.toggle('on', ok && S.score > 0 && MODE.kind !== 'duel' && !(MODE.rules && MODE.rules.hard) && (MODE.kind === 'raid' ? C.raidEnabled() : C.enabled()));
+    $('chainRow').classList.toggle('on', ok && S.score > 0 && MODE.kind !== 'duel' && MODE.kind !== 'forge' && !(MODE.rules && MODE.rules.hard) && (MODE.kind === 'raid' ? C.raidEnabled() : C.enabled()));
     $('chainBtn').disabled = false;
     $('chainSt').textContent = MODE.kind === 'daily' ? 'Replayed by the Nightwire engine on X Layer, then ranked on today\'s board.' : 'Replayed by the Nightwire engine on X Layer, then ranked all-time.';
     if (RIVAL) {
@@ -1083,7 +1203,13 @@ const PERSONA = [
 ];
 const inspector = makeInspector($('chipSheet'), {
   onTap: () => sfx.select(),
-  onInfo: ({ type, c }) => {
+  onInfo: ({ type, c, custom }) => {
+    if (custom) {
+      $('chName').textContent = `${inspectName} brain`;
+      $('chInfo').textContent = `${c.nand} NAND + ${c.latch} LATCH. Forged: compiled from your rhythm and reflexes into a TapeOut netlist.`;
+      document.querySelectorAll('#chSeg button').forEach((x) => x.classList.remove('on'));
+      return;
+    }
     const b = type === 8 ? { name: 'OMEGA' } : E.BOSSES[type], ch = E.brainOf(type).chip;
     $('chName').textContent = `${b.name} brain`;
     const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${type + 1} on the Nightwire Armory, X Layer.` : 'Taped out on the Nightwire Armory processor at launch.';
@@ -1091,10 +1217,12 @@ const inspector = makeInspector($('chipSheet'), {
     document.querySelectorAll('#chSeg button').forEach((x) => x.classList.toggle('on', Number(x.dataset.t) === type));
   },
 });
-function openChips(type, live) {
+let inspectName = '';
+function openChips(type, live, custom = null, name = '') {
   if (S.phase === 'day' || S.phase === 'night') paused = true;
+  inspectName = name;
   openSheet('chip');
-  requestAnimationFrame(() => inspector.open(type, live && live.state, live && live.inputs));
+  requestAnimationFrame(() => inspector.open(type, live && live.state, live && live.inputs, custom));
 }
 document.querySelectorAll('#chSeg button').forEach((x) => x.addEventListener('click', () => { sfx.select(); inspector.open(Number(x.dataset.t)); }));
 $('chStep').addEventListener('click', () => { sfx.select(); inspector.step(); });
@@ -1147,7 +1275,7 @@ async function shareDuel() {
   if (!lastResult) return;
   let url = duelLink();
   if (API.enabled()) {
-    try { const { id } = await API.createDuel({ seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous' }); url = `${location.origin}${location.pathname}#d=${id}`; } catch { /* keep the long link */ }
+    try { const { id } = await API.createDuel({ seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous', hard: !!(MODE.rules && MODE.rules.hard) }); url = `${location.origin}${location.pathname}#d=${id}`; } catch { /* keep the long link */ }
   }
   const msg = `I scored ${fmt(S.score)} on Nightwire (stage ${S.stageNo}). Same battlefield, same supplies. Beat me:`;
   if (navigator.share) { navigator.share({ title: 'Nightwire duel', text: msg, url }).catch(() => {}); return; }
@@ -1684,7 +1812,7 @@ function drawBossBar() {
     ctx.fillRect(x + 1, y + 6, (w - 2) * (b.hp / b.max), 6);
   }
   // live readout of the boss's brain chip (a TapeOut circuit)
-  const br = E.brainOf(b.type), c = S.chip, fresh = c && S.time - c.t < 2.2 && S.phase === 'night';
+  const br = S.forge ? { circuit: S.forge.circuit } : E.brainOf(b.type), c = S.chip, fresh = c && S.time - c.t < 2.2 && S.phase === 'night';
   ctx.font = '700 8.5px "JetBrains Mono", monospace';
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(232,238,247,0.5)';
@@ -2238,6 +2366,7 @@ function frame(now) {
     if (slowFrames > 45) { lowPower = true; dpr = 1; MAXP = 200; resize(); }
   }
   if (S.slow < 1 && S.phase !== 'over') S.slow = Math.min(1, S.slow + real * 0.6);
+  if ($('forge').classList.contains('show')) { S.time += real; drawForgePreview(); return; }
   if (paused) { render(); return; }
   if (S.phase !== 'title') update(real * S.slow);
   else S.time += real;
@@ -2258,11 +2387,19 @@ function applyDuel(d) {
   syncPick();
 }
 applyDuel(readDuel());
+const forgeLink = location.hash.match(/(?:^#|&)forge=([\w-]{8})/);
+if (forgeLink && API.enabled()) {
+  API.getMachine(forgeLink[1]).then((m) => {
+    $('duelCard').innerHTML = `<b>${m.design.name.replace(/[<>&]/g, '')}</b>, a war machine forged by ${String(m.author).replace(/[<>&]/g, '')}. ${m.gates}-gate brain${m.top[0] ? `. Best: ${fmt(m.top[0].score)} by ${String(m.top[0].name).replace(/[<>&]/g, '')}` : ''}. <button class="link" id="fightLinked">Fight it</button>`;
+    $('duelCard').classList.add('on');
+    $('fightLinked').addEventListener('click', () => fightForge(m.design, m.id, m.author));
+  }).catch(() => {});
+}
 const shortDuel = location.hash.match(/(?:^#|&)d=([\w-]{4,12})/);
 if (shortDuel && API.enabled()) { // short link: fetch it, then check it ourselves by replaying every move
   API.getDuel(shortDuel[1]).then((d) => {
-    const check = E.replay(d.seed >>> 0, d.actions);
-    applyDuel(check.ok && check.st.over && check.st.score === d.score ? { seed: d.seed >>> 0, actions: d.actions, score: d.score, stage: d.stage } : { bad: true });
+    const check = E.replay(d.seed >>> 0, d.actions, { hard: !!d.hard });
+    applyDuel(check.ok && check.st.over && check.st.score === d.score ? { seed: d.seed >>> 0, actions: d.actions, score: d.score, stage: d.stage, hard: !!d.hard } : { bad: true });
   }).catch(() => applyDuel({ bad: true }));
 }
 RUN = E.newRun(E.randomSeed(), mkGem);

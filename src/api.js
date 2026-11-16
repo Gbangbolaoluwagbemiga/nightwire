@@ -16,3 +16,7 @@ export const createDuel = (d) => req('/duels', d);
 export const getDuel = (id) => req(`/duels/${encodeURIComponent(id)}`);
 export const raidState = () => req('/raid');
 export const submitRaid = (r) => req('/raid', r);
+export const publishMachine = (design, author, threat) => req('/forge', { design, author, threat });
+export const listMachines = () => req('/forge');
+export const getMachine = (id) => req(`/forge/${encodeURIComponent(id)}`);
+export const submitForgeRun = (id, actions, name) => req(`/forge/${encodeURIComponent(id)}/runs`, { actions, name });

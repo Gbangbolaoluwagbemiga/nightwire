@@ -13,6 +13,7 @@ export const NIGHT_START = 2000; // ms
 // round(a / b) for a >= 0, b > 0 (halves round up, like Math.round)
 export const rdiv = (a, b) => Math.floor((2 * a + b) / (2 * b));
 import { CHIPS } from './chips.js';
+import { compile as compileForge, COLORS as FORGE_COLORS, designKey } from './forge.js';
 import { load as loadChip, beat as chipBeat } from './tap02.js';
 
 // Each war machine's combat brain is a TapeOut NAND/LATCH chip (src/chips.js, taped out on X Layer).
@@ -73,13 +74,20 @@ const NOFX = new Proxy({}, { get: () => () => {} });
 export const VETERAN = { from: 3, hpPct: 160, dmgPct: 140, extraAttacks: 2 };
 const veteran = (st) => st.hard && st.stageNo >= VETERAN.from;
 
-export function makeBoss(stageNo, hard = false) {
-  const d = BOSSES[(stageNo - 1) % BOSSES.length];
+// Boss Forge: a player-designed war machine fought at every stage (its brain compiled from the design)
+export function forgeRules(design) {
+  const c = compileForge(design);
+  return { design: c.design, circuit: c.circuit, netlist: c.netlist };
+}
+export const forgeSeed = (design) => seedFrom(`forge:${designKey(design)}`);
+
+export function makeBoss(stageNo, hard = false, forge = null) {
+  const d = forge ? { name: forge.design.name, role: 'forged war machine', color: FORGE_COLORS[forge.design.color], type: forge.design.hull } : BOSSES[(stageNo - 1) % BOSSES.length];
   const mk = Math.floor((stageNo - 1) / BOSSES.length);
   let hp = 1300; // tenths; x1.60 per stage
   for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 160, 100);
   if (hard && stageNo >= VETERAN.from) hp = rdiv(hp * VETERAN.hpPct, 100);
-  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, age: 0, brain: new Array(BRAINS[d.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
+  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, age: 0, brain: new Array((forge ? forge.circuit : BRAINS[d.type]).nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
 // ---------------------------------------------------------------- World Boss raid
@@ -96,10 +104,11 @@ export function newRun(seed, mk = plain, opts = {}) {
   const R = rng(seed), CR = rng(seed ^ 0x5bd1e995);
   const st = {
     seed, stageNo: 1, bossesDown: 0, score: 0, moves: MOVES_PER_DAY, base: BASE_MAX, baseMax: BASE_MAX, shield: 0, shieldMax: 1,
-    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid,
+    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid, hard: false, forge: null, // every rule flag set explicitly: the live game reuses one state object
   };
   if (opts.raid) { st.stageNo = RAID.stage; st.boss = makeRaidBoss(); }
   if (opts.hard && !opts.raid) st.hard = true;
+  if (opts.forge && !opts.raid) { st.forge = forgeRules(opts.forge); st.boss = makeBoss(1, st.hard, st.forge); }
   return { st, R, CR, G: freshBoard(R, mk) };
 }
 
@@ -372,7 +381,7 @@ export function planNight(st) {
   events.forEach((e, i) => { e.id = i; });
   return {
     events, heal, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
-    max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg,
+    max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg, circuit: st.forge ? st.forge.circuit : null,
   };
 }
 
@@ -429,7 +438,7 @@ export function simNight(plan, strikes, crState) {
 
   let hp = plan.hp, base = plan.base, shield = plan.shield, score = plan.score, left = plan.strikes, dead = false, over = false, killT = -1;
   let brain = plan.brain.slice(), damage = 0;
-  const circuit = BRAINS[plan.type];
+  const circuit = plan.circuit || BRAINS[plan.type];
   const act = {};
   const live = new Set();
   const out = [];
@@ -511,7 +520,7 @@ export function finishNight(run, script) {
   return script.outcome;
 }
 export function bossDefeated(st) { const bonus = 500 * st.stageNo; st.score += bonus; st.bossesDown++; return bonus; }
-export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo, st.hard); }
+export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo, st.hard, st.forge); }
 export function bossHolds(st) { st.boss.present = true; st.boss.rage++; }
 export function startDay(run) {
   run.st.moves = MOVES_PER_DAY; // the shield is kept

@@ -73,7 +73,7 @@
         <p class="modehint" id="modeHint"></p>
       </div>
       <button class="cta big" id="playBtn">Play</button>
-      <div class="best">Best <span id="bestTxt">0</span> · <button class="link" id="ranksBtn">Leaderboard</button><span id="inboxLink"> · <button class="link" id="inboxBtn">Inbox</button></span> · <button class="link" id="chipsBtn">Boss chips</button></div>
+      <div class="best">Best <span id="bestTxt">0</span> · <button class="link" id="ranksBtn">Leaderboard</button><span id="inboxLink"> · <button class="link" id="inboxBtn">Inbox</button></span> · <button class="link" id="chipsBtn">Boss chips</button> · <button class="link forge-link" id="forgeBtn">Boss Forge</button></div>
     </div>
 
     <div id="over" class="screen">
@@ -124,6 +124,28 @@
         <button class="chainbtn" id="ibLoadBtn"><span>Check my TapeSend inbox</span></button>
         <ol class="ranklist" id="ibList"></ol>
       </div>
+    </div>
+
+    <div id="forge" class="screen forgescr">
+      <div class="ov-title small">Boss Forge</div>
+      <canvas id="forgeCv"></canvas>
+      <div class="fg-stats" id="fgStats"></div>
+      <label class="fld"><span>Name</span><input id="fgName" maxlength="14" autocomplete="off" spellcheck="false"></label>
+      <div class="fg-row"><span class="lbl">HULL</span><div class="seg fgseg wrap" id="fgHull"><button data-v="0">MECH</button><button data-v="1">GUNSHIP</button><button data-v="2">AIRSHIP</button><button data-v="3">CARRIER</button><button data-v="4">TANK</button><button data-v="5">WING</button><button data-v="6">WALKER</button><button data-v="7">PLATFORM</button></div></div>
+      <div class="fg-row"><span class="lbl">COLOUR</span><div class="swatches" id="fgColor"></div></div>
+      <div class="fg-row"><span class="lbl">ATTACK RHYTHM · tap a beat to change it</span><div class="beats" id="fgBeats"><button data-b="0"></button><button data-b="1"></button><button data-b="2"></button><button data-b="3"></button></div></div>
+      <div class="fg-row"><span class="lbl">REFLEXES · they override the rhythm, top first</span>
+        <div class="fg-sub">Emergency repair, once, below</div>
+        <div class="seg fgseg" id="fgRepair"><button data-v="0">Off</button><button data-v="75">75%</button><button data-v="50">50%</button><button data-v="25">25%</button></div>
+        <div class="fg-sub">EMP a raised shield</div>
+        <div class="seg fgseg" id="fgEmp"><button data-v="0">Never</button><button data-v="1">Always</button><button data-v="2">Once enraged</button></div>
+        <div class="toggles"><button id="fgWeak">Focus fire on a weak base</button><button id="fgRage">Focus fire when enraged</button></div>
+      </div>
+      <div class="row2"><button class="ghostbtn" id="fgInspect">Inspect chip</button><button class="ghostbtn" id="fgTest">Test fight</button></div>
+      <button class="cta big" id="fgPublish">Publish</button>
+      <div class="chainst" id="fgSt"></div>
+      <div class="fg-row"><span class="lbl">COMMUNITY WAR MACHINES</span><ol class="ranklist" id="fgList"></ol></div>
+      <button class="ghostbtn" id="fgBack">Back</button>
     </div>
 
     <div id="ranks" class="screen">

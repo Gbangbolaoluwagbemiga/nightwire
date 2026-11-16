@@ -8,11 +8,11 @@ const ON = '#3DDC97', OFF = 'rgba(160,175,195,0.28)';
 
 export function makeInspector(root, opts) {
   const cv = root.querySelector('canvas'), g = cv.getContext('2d');
-  let type = 0, state = [], inputs = [0, 0, 0, 0, 0, 0, 0], layout = null, k = 1;
+  let type = 0, state = [], inputs = [0, 0, 0, 0, 0, 0, 0], layout = null, k = 1, custom = null;
   const W = 350, H = 300, X0 = 62, X1 = W - 58;
 
   function build() {
-    const c = E.brainOf(type).circuit, nIn = c.nIn, base = 2 + nIn;
+    const c = custom || E.brainOf(type).circuit, nIn = c.nIn, base = 2 + nIn;
     const level = new Array(c.S).fill(0), row = [];
     for (let i = 0; i < c.op.length; i++) level[base + i] = c.op[i] === 0 ? Math.max(level[c.a[i]], level[c.b[i]]) + 1 : 1;
     const maxL = Math.max(...level) || 1;
@@ -73,7 +73,7 @@ export function makeInspector(root, opts) {
     g.font = '800 12px "JetBrains Mono", monospace';
     g.fillStyle = ['#ff8a8a', '#ff4a4a', '#3FC8FF', '#3DDC97'][action];
     g.fillText(E.ACTIONS[action], W - 6, H / 2 + 2);
-    opts.onInfo({ type, c, state: state.slice(), action });
+    opts.onInfo({ type, c, state: state.slice(), action, custom: !!custom });
   }
 
   function hit(e) {
@@ -83,8 +83,9 @@ export function makeInspector(root, opts) {
   cv.addEventListener('pointerdown', hit);
 
   return {
-    open(t, liveState, liveInputs) {
+    open(t, liveState, liveInputs, customCircuit = null) {
       type = t;
+      custom = customCircuit;
       build();
       state = liveState ? liveState.slice() : new Array(layout.c.nState).fill(0);
       if (liveInputs) inputs = liveInputs.slice();

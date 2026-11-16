@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as E from '../src/engine.js';
+import * as F from '../src/forge.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const DATA = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -18,6 +19,7 @@ fs.mkdirSync(DATA, { recursive: true });
 let db = { runs: [], duels: {}, raids: [] };
 try { db = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { /* first start */ }
 db.raids ??= [];
+db.forge ??= {};
 const RAID_POOL = Number(process.env.RAID_POOL || 1_500_000); // OMEGA's weekly health, tenths of HP
 let dirty = false;
 setInterval(() => {
@@ -133,10 +135,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/duels') {
       if (limited(ip, 20)) return send(res, 429, { error: 'slow down' });
       const b = await body(req);
-      const v = verify(b.seed >>> 0, b.actions);
+      const hard = !!b.hard;
+      const v = verify(b.seed >>> 0, b.actions, { hard });
       if (v.error) return send(res, 422, { error: v.error });
       const id = crypto.randomBytes(5).toString('base64url');
-      db.duels[id] = { seed: b.seed >>> 0, actions: b.actions, score: v.st.score, stage: v.st.stageNo, name: cleanName(b.name), at: Date.now() };
+      db.duels[id] = { seed: b.seed >>> 0, actions: b.actions, score: v.st.score, stage: v.st.stageNo, name: cleanName(b.name), hard, at: Date.now() };
       dirty = true;
       return send(res, 200, { id });
     }
@@ -160,6 +163,65 @@ const server = http.createServer(async (req, res) => {
       dirty = true;
       const st = raidState(week);
       return send(res, 200, { ok: true, damage: v.st.damage, rank: st.top.findIndex((p) => p.name === name) + 1 || null, raid: st });
+    }
+
+    // ---- admin (moderation / cleanup), only with the ADMIN_TOKEN set on the service
+    if (url.pathname.startsWith('/admin/')) {
+      const tok = process.env.ADMIN_TOKEN;
+      const given = req.headers['x-admin-token'] || '';
+      if (!tok || given.length !== tok.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(tok))) return send(res, 403, { error: 'forbidden' });
+      if (req.method === 'GET' && url.pathname === '/admin/runs') return send(res, 200, { runs: db.runs.map(({ key, mode, level, name, score, stage, at }) => ({ key, mode, level, name, score, stage, at })) });
+      if (req.method === 'POST' && url.pathname === '/admin/delete-runs') {
+        const b = await body(req);
+        const keys = new Set(Array.isArray(b.keys) ? b.keys : []);
+        const before = db.runs.length;
+        db.runs = db.runs.filter((r) => !keys.has(r.key));
+        dirty = true;
+        return send(res, 200, { removed: before - db.runs.length });
+      }
+      return send(res, 404, { error: 'not found' });
+    }
+
+    // ---- Boss Forge: community war machines
+    if (req.method === 'POST' && url.pathname === '/forge') {
+      if (limited(ip, 10)) return send(res, 429, { error: 'slow down' });
+      const b = await body(req);
+      let design;
+      try { design = F.normalize(b.design || {}); } catch (e) { return send(res, 400, { error: e.message }); }
+      const chip = F.compile(design); // compiled here, never trusted from the client
+      const id = crypto.createHash('sha256').update(F.designKey(design)).digest('base64url').slice(0, 8);
+      if (!db.forge[id]) { db.forge[id] = { id, design, author: cleanName(b.author), gates: chip.gates, latches: chip.latch, threat: Number(b.threat) || null, created: Date.now(), plays: 0, runs: [] }; dirty = true; }
+      return send(res, 200, { id, existed: db.forge[id].created < Date.now() - 1000 });
+    }
+    if (req.method === 'GET' && url.pathname === '/forge') {
+      const list = Object.values(db.forge).map(({ runs, ...f }) => ({ ...f, best: runs.length ? Math.max(...runs.map((r) => r.score)) : 0 }))
+        .sort((a, b) => b.plays - a.plays || b.created - a.created).slice(0, 30);
+      return send(res, 200, { machines: list });
+    }
+    const fm = url.pathname.match(/^\/forge\/([\w-]{8})(\/runs)?$/);
+    if (fm) {
+      const f = db.forge[fm[1]];
+      if (!f) return send(res, 404, { error: 'no such war machine' });
+      if (req.method === 'GET' && !fm[2]) {
+        const best = new Map();
+        for (const r of f.runs) if (!best.has(r.name) || r.score > best.get(r.name).score) best.set(r.name, r);
+        const { runs, ...rest } = f;
+        return send(res, 200, { ...rest, seed: E.forgeSeed(f.design), top: [...best.values()].sort((a, b) => b.score - a.score).slice(0, 10) });
+      }
+      if (req.method === 'POST' && fm[2]) {
+        if (limited(ip)) return send(res, 429, { error: 'slow down' });
+        const b = await body(req);
+        const v = verify(E.forgeSeed(f.design), b.actions, { forge: f.design });
+        if (v.error) return send(res, 422, { error: v.error });
+        const key = crypto.createHash('sha256').update(`forge:${f.id}:${b.actions.join(',')}`).digest('hex');
+        if (f.runs.some((r) => r.key === key)) return send(res, 409, { error: 'this run was already submitted' });
+        const run = { key, name: cleanName(b.name), score: v.st.score, stage: v.st.stageNo, bossesDown: v.st.bossesDown, at: Date.now() };
+        f.runs.push(run);
+        f.plays++;
+        dirty = true;
+        const ranked = [...f.runs].sort((a, b2) => b2.score - a.score);
+        return send(res, 200, { ok: true, score: run.score, rank: ranked.findIndex((r) => r.key === key) + 1, plays: f.plays });
+      }
     }
 
     const m = url.pathname.match(/^\/duels\/([\w-]{4,12})$/);
