@@ -2496,7 +2496,7 @@ function drawWeapons() {
     let big, prog = null, val;
     if (i < 3) { val = S.phase === 'night' ? S.ammo[i] : Math.floor(v / 3); big = `x${val}`; prog = S.phase === 'night' ? null : (v % 3) / 3; }
     else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield / 10) : Math.round(v * 2); big = S.phase === 'night' ? `${val}` : `+${val}`; } // by day: armour banked for nightfall
-    else { val = Math.round(v); big = `+${val}`; }
+    else { val = S.phase === 'night' && NIGHT ? Math.round(NIGHT.plan.repair / 10) : Math.round(v); big = `+${val}`; } // by night: what the medics repaired
     const tier = i < 3 && S.phase === 'night' ? S.wtier[i] : tierOf(i, i < 3 ? Math.floor(v / 3) : val);
     ctx.font = '800 7.5px "JetBrains Mono", monospace';
     ctx.textAlign = 'left';

@@ -361,26 +361,31 @@ export function planNight(st) {
   }
   const shieldPts = st.charge[3]; // 2 shield per point = 1 per half-point
   st.shield = Math.min(BASE_MAX, st.shield + rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * 10); // stacks on what is left
-  st.shieldMax = Math.max(1, st.shield);
   st.charge[3] = 0;
   const repTier = tierOf(4, Math.floor(st.charge[4] / 2));
-  const heal = Math.min(st.baseMax - st.base, rdiv(st.charge[4] * TIER_PCT[repTier], 200) * 10);
+  const repair = rdiv(st.charge[4] * TIER_PCT[repTier], 200) * 10;
+  const heal = Math.min(st.baseMax - st.base, repair);
+  st.shield = Math.min(BASE_MAX, st.shield + repair - heal); // repairs the base can't use reinforce the dome
+  st.shieldMax = Math.max(1, st.shield);
   st.charge[4] = 0;
   const shots = [];
   const left = st.ammo.slice();
   while (left.some((n) => n > 0)) for (let w = 0; w < 3; w++) if (left[w] > 0) { left[w]--; shots.push(w); }
   const spacing = shots.length ? Math.max(160, Math.min(420, Math.floor(7000 / shots.length))) : 0;
   const events = shots.map((w, j) => ({ t: NIGHT_START + j * spacing, kind: w, dmg: rdiv([50, 80, 26][w] * mulP * TIER_PCT[st.wtier[w]], 10000) }));
-  const dur = Math.max(4500, shots.length * spacing + 500);
   const rage = st.boss.rage;
   const attacks = 4 + st.stageNo + rage + (veteran(st) ? VETERAN.extraAttacks : 0);
   let bossDmg = rdiv((6 + 3 * (st.stageNo - 1)) * 10 * (4 + rage), 4);
   if (veteran(st)) bossDmg = rdiv(bossDmg * VETERAN.dmgPct, 100);
-  for (let j = 0; j < attacks; j++) events.push({ t: NIGHT_START + 600 + Math.floor((j * dur) / attacks), kind: 'boss', dmg: bossDmg });
+  // the war machine only shoots back once the whole arsenal has fired and its last volley has landed
+  let lastLand = NIGHT_START;
+  for (const e of events) lastLand = Math.max(lastLand, e.t + volleyHit(e.kind, st.wtier[e.kind], 0).at);
+  const bossFrom = lastLand + 600;
+  for (let j = 0; j < attacks; j++) events.push({ t: bossFrom + j * BOSS_GAP, kind: 'boss', dmg: bossDmg });
   events.sort((x, y) => x.t - y.t);
   events.forEach((e, i) => { e.id = i; });
   return {
-    events, heal, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
+    events, heal, repair, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
     max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg, circuit: st.forge ? st.forge.circuit : null,
   };
 }
@@ -399,7 +404,7 @@ export function volleyHit(w, tier, dmg) {
 }
 export const BOMB = (j) => ({ delay: 150 + j * 90, d: 380 });
 export const STRIKE_LAND = 530; // ms after the call: the first bomb lands
-export const BOSS_AIM = 380, BOSS_FLIGHT = 700;
+export const BOSS_AIM = 380, BOSS_FLIGHT = 700, BOSS_GAP = 480;
 
 // Resolve the whole fight from the plan and the airstrike call times. crState = crit RNG state at nightfall.
 export function simNight(plan, strikes, crState) {
@@ -421,10 +426,10 @@ export function simNight(plan, strikes, crState) {
     const vh = volleyHit(ev.kind, tier, ev.dmg);
     push(ev.t + vh.at, { type: 'hit', src: ev.kind, dmg: vh.dmg, id: ev.id });
   }
-  // the onslaught: once our last volley has landed, a war machine still standing unleashes its signature weapon
-  let lastShot = 0;
-  for (const ev of plan.events) if (ev.kind !== 'boss') lastShot = Math.max(lastShot, ev.t + volleyHit(ev.kind, plan.wtier[ev.kind], 0).at);
-  const slamAt = Math.max(lastShot, NIGHT_START + 1200) + 600;
+  // the onslaught: after its regular attacks, a war machine still standing unleashes its signature weapon
+  let lastHit = NIGHT_START + 1200;
+  for (const ev of plan.events) lastHit = Math.max(lastHit, ev.kind === 'boss' ? ev.t + BOSS_AIM + BOSS_FLIGHT : ev.t + volleyHit(ev.kind, plan.wtier[ev.kind], 0).at);
+  const slamAt = lastHit + 600; // after its regular attacks
   const slamDmg = rdiv(plan.bossDmg * 6, 10);
   for (let k = 0; k < ONSLAUGHT_HITS; k++) {
     push(slamAt + k * 160 - 450, { type: 'slamfire', k }); // visual only: launch

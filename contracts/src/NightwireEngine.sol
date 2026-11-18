@@ -24,6 +24,7 @@ contract NightwireEngine {
     uint32 constant NIGHT_START = 2000;
     uint32 constant BOSS_AIM = 380;
     uint32 constant BOSS_FLIGHT = 700;
+    uint32 constant BOSS_GAP = 480;
 
     ICircuits public immutable armory;
     uint256[9] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden, omega (raid)
@@ -646,6 +647,8 @@ contract NightwireEngine {
         uint256 heal = _rdiv(uint256(g.charge[4]) * _tierPct(repTier), 200) * 10;
         uint256 room = BASE_MAX - g.base;
         nt.heal = uint32(heal < room ? heal : room);
+        sh = g.shield + heal - nt.heal; // repairs the base can't use reinforce the dome
+        g.shield = uint32(sh > BASE_MAX ? BASE_MAX : sh);
         g.charge[4] = 0;
         nt.rage = g.rage;
 
@@ -657,35 +660,24 @@ contract NightwireEngine {
         }
         uint256 attacks = 4 + g.stageNo + g.rage;
         nt.ev = new uint256[](shots + attacks);
-        uint256 dur = shots * spacing + 500;
-        if (dur < 4500) dur = 4500;
         uint256 bossDmg = _rdiv((6 + 3 * (g.stageNo - 1)) * 10 * (4 + g.rage), 4);
         nt.bossDmg = bossDmg;
-        // shots round-robin across weapons, then merge with boss attacks by time (shots first on ties)
+        // shots round-robin across weapons; the war machine shoots back only after our last volley has landed
         uint256[3] memory left = ammo;
-        uint256 j;
-        uint256 b;
-        uint256 shotT;
-        uint256 bossT = NIGHT_START + 600;
         uint256 w;
-        bool moreShots = shots > 0;
-        uint256 shotKind = _nextShot(left, w);
-        while (j < shots || b < attacks) {
-            if (moreShots && j < shots) shotT = NIGHT_START + j * spacing;
-            if (b < attacks) bossT = NIGHT_START + 600 + (b * dur) / attacks;
-            if (j < shots && (b >= attacks || shotT <= bossT)) {
-                uint256 base_ = shotKind == 0 ? 50 : shotKind == 1 ? 80 : 26;
-                uint256 dmg = _rdiv(base_ * nt.mulP * _tierPct(nt.wtier[shotKind]), 10000);
-                nt.ev[nt.nev++] = shotT | (shotKind << 32) | (dmg << 40);
-                left[shotKind]--;
-                j++;
-                w = shotKind + 1;
-                if (j < shots) shotKind = _nextShot(left, w);
-            } else {
-                nt.ev[nt.nev++] = bossT | (uint256(3) << 32) | (bossDmg << 40);
-                b++;
-            }
+        uint256 lastLand = NIGHT_START;
+        for (uint256 j; j < shots; j++) {
+            uint256 shotKind = _nextShot(left, w);
+            uint256 shotT = NIGHT_START + j * spacing;
+            uint256 base_ = shotKind == 0 ? 50 : shotKind == 1 ? 80 : 26;
+            uint256 dmg = _rdiv(base_ * nt.mulP * _tierPct(nt.wtier[shotKind]), 10000);
+            nt.ev[nt.nev++] = shotT | (shotKind << 32) | (dmg << 40);
+            uint256 land = shotT + (shotKind == 0 ? 160 : shotKind == 1 ? (nt.wtier[1] == 0 ? 700 : 500) : 750);
+            if (land > lastLand) lastLand = land;
+            left[shotKind]--;
+            w = shotKind + 1;
         }
+        for (uint256 b; b < attacks; b++) nt.ev[nt.nev++] = (lastLand + 600 + b * BOSS_GAP) | (uint256(3) << 32) | (bossDmg << 40);
     }
 
     function _refund(G memory g, Night memory nt, uint256 killT) internal pure {
@@ -727,7 +719,7 @@ contract NightwireEngine {
         h.v = new uint256[](h.k.length);
         if (nt.heal > 0) _push(h, 1200, 0, nt.heal);
         uint256 nBoss;
-        uint256 lastShot;
+        uint256 lastHit = NIGHT_START + 1200;
         for (uint256 i; i < nt.nev; i++) {
             uint256 e = nt.ev[i];
             uint256 t = e & 0xffffffff;
@@ -736,6 +728,7 @@ contract NightwireEngine {
             if (kind == 3) {
                 _push(h, t, 3, nBoss); // bfire: boss attack index
                 _push(h, t + BOSS_AIM + BOSS_FLIGHT, 5, nBoss | (dmg << 16));
+                if (t + BOSS_AIM + BOSS_FLIGHT > lastHit) lastHit = t + BOSS_AIM + BOSS_FLIGHT;
                 nBoss++;
                 continue;
             }
@@ -755,11 +748,11 @@ contract NightwireEngine {
                 tt = t + 750;
             }
             _push(h, tt, 2, d | (uint256(0xff) << 32)); // sid 0xff = not a bomb
-            if (tt > lastShot) lastShot = tt;
+            if (tt > lastHit) lastHit = tt;
         }
-        // onslaught: once our last volley lands, a war machine still standing unleashes its signature weapon
+        // onslaught: after its regular attacks, a war machine still standing unleashes its signature weapon
         {
-            uint256 slamAt = (lastShot > NIGHT_START + 1200 ? lastShot : NIGHT_START + 1200) + 600;
+            uint256 slamAt = lastHit + 600;
             uint256 slamDmg = _rdiv(nt.bossDmg * 6, 10);
             for (uint256 k; k < 5; k++) _push(h, slamAt + k * 160, 7, slamDmg);
         }
