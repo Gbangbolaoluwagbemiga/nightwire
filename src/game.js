@@ -16,15 +16,16 @@ let H = 860; // logical height adapts to the phone: the game always fills the wi
 const { N, CORE, MOVES_PER_DAY, TIER_MUL, tierOf, BOSSES } = E;
 const SKY_TOP = 60, WBAR_H = 54;
 const SKY_FROM = 98; // the boss's airspace starts under its health bar and chip readout
-const SKY_MIN = 124; // never squeeze the war machine smaller than this
+const SKY_MIN = 84; // the board takes the full width first; the sky (boss area) keeps at least this
 const BOTTOM_H = 52;
 let CELL = 45, BX = (W - N * CELL) / 2;
 let BY = 404, BASE_Y = 296, WBAR_Y = 336, BOTTOM_Y = 780, SKY_H = 236;
 // the munitions are as big as the screen allows once the sky has its minimum
+const CELL_MAX = Math.floor((W - 12) / N); // edge to edge, same margin as the arsenal row
 const cellFor = (h) => Math.floor((h - SKY_FROM - SKY_MIN - 38 - WBAR_H - 10 - 10 - BOTTOM_H - 14) / N);
 // lay out bottom-up from the screen's real height; the sky (the boss area) takes what is left
 function layout() {
-  CELL = Math.max(38, Math.min(48, cellFor(H)));
+  CELL = Math.max(38, Math.min(CELL_MAX, cellFor(H)));
   BX = (W - N * CELL) / 2;
   BOTTOM_Y = H - BOTTOM_H - 12;
   BY = BOTTOM_Y - 10 - N * CELL;
@@ -35,7 +36,7 @@ function layout() {
   STARS.forEach((st, i) => { st.y = SKY_TOP + ((i * 53.7) % Math.max(40, SKY_H - 80)); });
 }
 const skyY = (f) => SKY_FROM + SKY_H * f; // a height in the boss's airspace, as a fraction
-const skyS = () => Math.min(1.1, SKY_H / 196); // boss size follows the sky's height
+const skyS = () => Math.max(0.6, Math.min(1.1, SKY_H / 196)); // boss size follows the sky's height
 
 // munitions on the board -> the weapon they arm (3 upgrade tiers each)
 const GEMS = [
@@ -391,6 +392,8 @@ function resize() {
   stage.style.setProperty('--strikeY', `${BY + 150}`);
   stage.style.setProperty('--toastY', `${Math.max(SKY_TOP + 70, BASE_Y - 74)}`);
   stage.style.setProperty('--bannerY', `${Math.round(skyY(0.3))}`);
+  stage.style.setProperty('--rvY', `${SKY_FROM + 4}`);
+  if (typeof rv !== 'undefined') rv.box.classList.toggle('compact', BASE_Y - SKY_FROM < 170); // short sky: side-by-side card
   stage.style.width = `${W * scale}px`;
   stage.style.height = `${H * scale}px`;
   stage.style.setProperty('--u', `${scale}px`);

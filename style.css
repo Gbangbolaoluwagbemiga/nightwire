@@ -213,11 +213,17 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 
 /* Rival panel */
 #rival {
-  position: absolute; left: calc(var(--u) * 10); top: calc(var(--u) * 104); width: calc(var(--u) * 78); padding: calc(var(--u) * 6) calc(var(--u) * 7) calc(var(--u) * 7);
+  position: absolute; left: calc(var(--u) * 10); top: calc(var(--u) * var(--rvY, 104)); width: calc(var(--u) * 78); padding: calc(var(--u) * 6) calc(var(--u) * 7) calc(var(--u) * 7);
   border-radius: calc(var(--u) * 12); background: rgba(8, 12, 20, .74); border: 1px solid rgba(255, 74, 74, .35); pointer-events: none;
   display: none; font-family: "JetBrains Mono", monospace; font-weight: 800; line-height: 1.1;
 }
 #rival.show { display: block; }
+#rival.compact { width: calc(var(--u) * 132); padding: calc(var(--u) * 5) calc(var(--u) * 7); }
+#rival.compact.show { display: grid; grid-template-columns: calc(var(--u) * 44) 1fr; column-gap: calc(var(--u) * 7); align-items: start; }
+#rival.compact > * { grid-column: 2; }
+#rival.compact .rv-head { margin-bottom: 0; }
+#rival.compact .rv-score, #rival.compact .rv-status, #rival.compact .rv-lead, #rival.compact .rv-bar { margin-top: calc(var(--u) * 2); }
+#stage #rival.compact canvas { grid-column: 1; grid-row: 1 / span 5; width: calc(var(--u) * 44); height: calc(var(--u) * 44); }
 #rival.hit { animation: rvHit .4s ease; }
 @keyframes rvHit { 30% { transform: translateX(calc(var(--u) * 3)); border-color: #ff4a4a; } 60% { transform: translateX(calc(var(--u) * -3)); } }
 .rv-head { display: flex; justify-content: space-between; font-size: calc(var(--u) * 8); letter-spacing: .06em; color: #ff8f8f; margin-bottom: calc(var(--u) * 4); }
