@@ -22,18 +22,26 @@ let CELL = 45, BX = (W - N * CELL) / 2;
 let BY = 404, BASE_Y = 296, WBAR_Y = 336, BOTTOM_Y = 780, SKY_H = 236;
 // the munitions are as big as the screen allows once the sky has its minimum
 const CELL_MAX = Math.floor((W - 12) / N); // edge to edge, same margin as the arsenal row
-const cellFor = (h) => Math.floor((h - SKY_FROM - SKY_MIN - 38 - WBAR_H - 10 - 10 - BOTTOM_H - 14) / N);
+const cellFor = (h) => Math.floor((h - SKY_FROM - SKY_MIN - 38 - WBAR_H - 8 - 8 - BOTTOM_H - 10) / N);
 // lay out bottom-up from the screen's real height; the sky (the boss area) takes what is left
 function layout() {
   CELL = Math.max(38, Math.min(CELL_MAX, cellFor(H)));
   BX = (W - N * CELL) / 2;
-  BOTTOM_Y = H - BOTTOM_H - 12;
-  BY = BOTTOM_Y - 10 - N * CELL;
-  WBAR_Y = BY - 10 - WBAR_H;
+  BOTTOM_Y = H - BOTTOM_H - 10;
+  BY = BOTTOM_Y - 8 - N * CELL;
+  WBAR_Y = BY - 8 - WBAR_H;
   BASE_Y = WBAR_Y - 38;
   SKY_H = BASE_Y - SKY_FROM;
-  TURRETS[0].y = BASE_Y - 14; TURRETS[1].y = BASE_Y - 18; TURRETS[2].y = BASE_Y - 14;
+  DAY = { base: BASE_Y, wbar: WBAR_Y, sky: SKY_H };
+  DROP_MAX = (N - 3) * CELL; // at night the board slides down (3 rows stay in view) and the battle zone grows
+  applyDrop(Math.round(ease(dropT) * DROP_MAX));
   STARS.forEach((st, i) => { st.y = SKY_TOP + ((i * 53.7) % Math.max(40, SKY_H - 80)); });
+}
+let DAY = { base: 296, wbar: 336, sky: 236 }, DROP = 0, DROP_MAX = 0, dropT = 0;
+function applyDrop(d) {
+  DROP = d;
+  BASE_Y = DAY.base + d; WBAR_Y = DAY.wbar + d; SKY_H = DAY.sky + d;
+  TURRETS[0].y = BASE_Y - 14; TURRETS[1].y = BASE_Y - 18; TURRETS[2].y = BASE_Y - 14;
 }
 const skyY = (f) => SKY_FROM + SKY_H * f; // a height in the boss's airspace, as a fraction
 const skyS = () => Math.max(0.6, Math.min(1.1, SKY_H / 196)); // boss size follows the sky's height
@@ -59,7 +67,7 @@ const bgDay = $('bgDay'), bgNight = $('bgNight');
 const ui = {
   stage: $('dayTxt'), score: $('scoreTxt'), moves: $('movesTxt'), mute: $('muteBtn'), toast: $('toast'),
   banner: $('banner'), b1: $('b1'), b2: $('b2'), status: $('statusBox'), statusLbl: $('statusLbl'), statusTxt: $('statusTxt'),
-  title: $('title'), over: $('over'), ranks: $('ranks'), best: $('bestTxt'), strikeBadge: $('strikeBadge'), strikeTxt: $('strikeTxt'),
+  title: $('title'), over: $('over'), ranks: $('ranks'), best: $('bestTxt'), strikeBadge: $('strikeBadge'), strikeTxt: $('strikeTxt'), bzBadge: $('bzBadge'), bzTxt: $('bzTxt'),
   strikeBtn: $('strikeBtn'), strikeBtnN: $('strikeBtnN'),
 };
 
@@ -382,14 +390,14 @@ function resize() {
   const vw = window.innerWidth, vh = window.innerHeight;
   scale = vw / W;
   H = vh / scale;
-  const minH = 38 * N + (SKY_FROM + SKY_MIN + 38 + WBAR_H + 10 + 10 + BOTTOM_H + 14); // smallest munitions still fit
+  const minH = 38 * N + (SKY_FROM + SKY_MIN + 38 + WBAR_H + 8 + 8 + BOTTOM_H + 10); // smallest munitions still fit
   if (H < minH) { H = minH; scale = vh / H; } // short/wide screens (desktop): fit the height, centered
   else if (H > 980) H = 980; // very tall: cap, center vertically
   H = Math.round(H);
   layout();
   stage.style.setProperty('--bottomY', `${BOTTOM_Y}`);
   stage.style.setProperty('--bottomH', `${BOTTOM_H}`);
-  stage.style.setProperty('--strikeY', `${BY + 150}`);
+  stage.style.setProperty('--strikeY', `${Math.round(BOTTOM_Y - 8 - 3 * CELL + (3 * CELL - 50) / 2)}`); // over the board's visible strip at night
   stage.style.setProperty('--toastY', `${Math.max(SKY_TOP + 70, BASE_Y - 74)}`);
   stage.style.setProperty('--bannerY', `${Math.round(skyY(0.3))}`);
   stage.style.setProperty('--rvY', `${SKY_FROM + 4}`);
@@ -430,10 +438,13 @@ function buzz(ms) { try { navigator.vibrate?.(ms); } catch { /* unsupported */ }
 let shownScore = 0;
 function addScore(n) { S.score += Math.round(n); }
 function syncHud() {
-  ui.stage.textContent = S.raid ? 'RAID' : `STAGE ${S.stageNo}`;
+  ui.stage.innerHTML = S.raid ? 'RAID' : `<span class="stw">STAGE </span>${S.stageNo}`;
   ui.moves.textContent = S.moves;
   ui.moves.classList.toggle('zero', S.moves <= 3 && S.phase === 'day');
   ui.strikeTxt.textContent = S.strikes;
+  const bz = (S.phase === 'night' ? S.bzLeft : S.bazooka) || 0;
+  ui.bzTxt.textContent = bz;
+  ui.bzBadge.classList.toggle('on', bz > 0);
   ui.strikeBadge.classList.toggle('on', S.strikes > 0);
   ui.strikeBtnN.textContent = `x${S.strikes}`;
   ui.strikeBtn.classList.toggle('show', S.phase === 'night' && S.strikes > 0 && S.boss && S.boss.dying < 0);
@@ -499,6 +510,11 @@ const FX = {
     g.sv = 14;
     spark(g.x, g.y, '#ffffff', 14, 160, 2.4, 0.5);
     text(g.x, g.y - 20, sp === 'core' ? 'AIRSTRIKE BEACON' : sp === 'bomb' ? 'GRENADE' : 'JET STRIKE', '#ffffff', 11);
+  },
+  bazooka(g) {
+    text(g.x, g.y - 52, 'BAZOOKA LOADED', '#FF7A45', 12, 1.2, 30);
+    ui.bzBadge.classList.remove('bump'); void ui.bzBadge.offsetWidth; ui.bzBadge.classList.add('bump');
+    syncHud();
   },
   strike(reason, g) { strikeEarned(reason, g ? g.x : 195, g ? g.y - 36 : BY + 150); },
   chain(n) {
@@ -600,6 +616,7 @@ function pt(e) {
   return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
 }
 function cellAt(p) {
+  if (DROP > 0) return null; // board still sliding back into place
   const c = Math.floor((p.x - BX) / CELL), r = Math.floor((p.y - BY) / CELL);
   return r >= 0 && r < N && c >= 0 && c < N ? [r, c] : null;
 }
@@ -1080,6 +1097,8 @@ function startNight() {
   const plan = E.planNight(S);
   NIGHT = { plan, cr: RUN.CR.s, strikes: [], i: 0, endAt: -1, tx: {} };
   NIGHT.script = E.simNight(plan, [], NIGHT.cr);
+  S.medicPool = plan.repair;
+  S.bzLeft = plan.bz; // display only: counts down as the rounds fire
   S.shown = S.charge.map((v) => v / 2);
   S.nt = 0;
   S.nightDmg = 0;
@@ -1098,12 +1117,16 @@ function nightEntry(e) {
   const b = S.boss;
   if (!b) return;
   switch (e.type) {
-    case 'heal':
+    case 'heal': // the medics' leftover pool: base first, the rest reinforces the dome
       S.base = e.base;
-      text(195, BASE_Y - 40, `+${e.v / 10} REPAIRED`, '#3DDC97', 15);
+      S.shield = e.shield;
+      S.medicPool = 0;
+      if (e.v > 0) text(195, BASE_Y - 40, `+${e.v / 10} REPAIRED`, '#3DDC97', 15);
+      if (e.dome > 0) text(195, BASE_Y - 62, `+${Math.round(e.dome / 10)} SHIELD`, '#3FC8FF', 13, 1.1, 24);
       spark(195, BASE_Y, '#3DDC97', 30, 160, 2.6, 0.7);
       sfx.repair();
       break;
+    case 'bzfire': fireBazooka(e); break;
     case 'fire': fireWeapon(e); break;
     case 'hit': hitBoss(e); break;
     case 'kill': bossKilled(); break;
@@ -1128,6 +1151,7 @@ function nightEntry(e) {
       if (e.action === 3) { b.hp = e.hp; text(S.bp.x, S.bp.y - 20, `+${Math.round(b.max * 0.008)} REPAIRED`, '#3DDC97', 15, 1.1, 30); break; }
       if (e.action === 2) { S.fx.push({ type: 'shieldHit', t: 0, d: 0.6 }); S.fx.push({ type: 'ring', x: NIGHT.tx[e.id] ?? 195, y: BASE_Y - 20, r: 0, max: 120, t: 0, d: 0.5, color: '#3FC8FF' }); text(195, BASE_Y - 70, e.absorbed > 0 ? 'EMP · SHIELD DOWN' : 'EMP', '#3FC8FF', 14); sfx.shield(); if (e.rest > 0) damageFx(e.rest, NIGHT.tx[e.id] ?? 195); break; }
       shotLandsFx(e.absorbed, e.rest, NIGHT.tx[e.id] ?? 195, e.shield);
+      medicsFx(e);
       break;
     case 'strike': S.strikes = e.strikes; syncHud(); break;
     case 'slamfire': { // arsenal spent, war machine still standing: its signature weapon
@@ -1150,10 +1174,36 @@ function nightEntry(e) {
       S.base = e.base;
       baseAlert(`${b.name}'s ${E.SIGNATURE[b.type].toLowerCase()}`);
       shotLandsFx(e.absorbed, e.rest, NIGHT.tx[`s${e.k}`] ?? 195, e.shield);
+      medicsFx(e);
       break;
     case 'over': closeNight(); gameOver(); break;
     default:
   }
+}
+
+// medics on standby soften every hit that gets through
+function medicsFx(e) {
+  if (!e.patch) return;
+  S.medicPool = e.pool;
+  S.wpulse[4] = 1;
+  text(195 + (Math.random() - 0.5) * 120, BASE_Y - 30, `MEDICS +${Math.round(e.patch / 10)}`, '#3DDC97', 11, 0.9, 22);
+  spark(wbarX(4) + 35, WBAR_Y, '#3DDC97', 8, 90, 2.2, 0.4);
+}
+
+// a bazooka round: one heavy rocket from the middle of the base
+function fireBazooka(e) {
+  const b = S.boss;
+  S.bzLeft = Math.max(0, (S.bzLeft || 0) - 1);
+  syncHud();
+  const sx = 195 + (e.j % 2 ? 26 : -26), sy = BASE_Y - 24;
+  const tx = S.bp.x + (Math.random() - 0.5) * 30 * S.bp.s, ty = S.bp.y;
+  S.proj.push({ kind: 'rocket', sx, sy, cx: (sx + tx) / 2 + (e.j % 2 ? 60 : -60), cy: Math.min(sy, ty) - 80, tx, ty, t: 0, d: E.BZ_FLIGHT / 1000, color: '#FF7A45', splash: true, big: true });
+  if (b) b.look = Math.atan2(sy - S.bp.y, sx - S.bp.x);
+  text(sx, sy - 26, 'BAZOOKA!', '#FF7A45', 13, 0.8, 22);
+  spark(sx, sy, '#ffb27a', 16, 140, 2.8, 0.4);
+  smoke(sx, sy, 6);
+  S.shake = Math.max(S.shake, 3);
+  sfx.missile(); setTimeout(() => sfx.cannon(), 90);
 }
 
 function fireWeapon(e) {
@@ -1204,7 +1254,7 @@ function callAirstrike() {
   }
   sfx.strike();
   buzz(50);
-  banner('AIRSTRIKE', 'jets inbound');
+  text(W / 2, SKY_FROM + 16, 'JETS INBOUND', '#FFD23F', 10, 0.8, 8); // small tag: keep the action visible
 }
 
 function hitBoss(e) {
@@ -1213,11 +1263,12 @@ function hitBoss(e) {
   S.score = e.score;
   S.nightDmg += e.d;
   b.flash = 0.08;
-  const big = e.src === 1 || e.src === 'bomb';
-  const color = e.src === 'bomb' ? '#ffb347' : GEMS[e.src].color;
+  const big = e.src === 1 || e.src === 'bomb' || e.src === 'bz';
+  const color = e.src === 'bomb' ? '#ffb347' : e.src === 'bz' ? '#FF7A45' : GEMS[e.src].color;
   const x = S.bp.x + (Math.random() - 0.5) * 80 * S.bp.s, y = S.bp.y + (Math.random() - 0.3) * 44 * S.bp.s;
   spark(x, y, color, lowPower ? 4 : big ? 14 : 7, big ? 220 : 160, 2.6, 0.4);
   if (e.d >= 30 || e.crit) text(x + (Math.random() - 0.5) * 24, y - 10, e.crit ? `CRIT ${Math.ceil(e.d / 10)}` : `${Math.ceil(e.d / 10)}`, e.crit ? '#FFD23F' : '#ffffff', e.crit ? 17 : big ? 15 : 12, 0.8, 44);
+  if (e.src === 'bz') { S.fx.push({ type: 'ring', x, y, r: 0, max: 90, t: 0, d: 0.5, color: '#FF7A45' }); S.shake = Math.max(S.shake, 6); smoke(x, y, 8); }
   sfx.impact();
 }
 function bossKilled() {
@@ -1790,6 +1841,11 @@ function updateBoard(dt) {
 function update(dt) {
   S.time += dt;
   S.nb += ((S.phase === 'night' ? 1 : 0) - S.nb) * Math.min(1, dt * 2);
+  const dropTo = S.phase === 'night' ? 1 : 0;
+  if (dropT !== dropTo) {
+    dropT = dropTo > dropT ? Math.min(1, dropT + dt / 0.6) : Math.max(0, dropT - dt / 0.45);
+    applyDrop(Math.round(ease(dropT) * DROP_MAX));
+  }
   S.shake = Math.max(0, S.shake - dt * 30);
   S.flash = Math.max(0, S.flash - dt * 2.2);
   for (let i = 0; i < 5; i++) S.wpulse[i] = Math.max(0, S.wpulse[i] - dt * 4);
@@ -1962,8 +2018,16 @@ function render() {
   for (const f of S.fx) if (f.t >= 0 && f.type !== 'strafe' && f.type !== 'bomber') drawFx(f);
   drawProjectiles();
   drawWeapons();
+  if (DROP > 0) { // night: the board sits lower, under the arsenal row
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, WBAR_Y + WBAR_H + 4, W, BOTTOM_Y - WBAR_Y - WBAR_H - 4);
+    ctx.clip();
+    ctx.translate(0, DROP);
+  }
   drawBoard();
   for (const f of S.fx) if (f.t >= 0 && (f.type === 'strafe' || f.type === 'bomber')) drawFx(f);
+  if (DROP > 0) ctx.restore();
 
   ctx.globalCompositeOperation = 'lighter';
   for (const o of ORBS) {
@@ -2496,7 +2560,7 @@ function drawWeapons() {
     let big, prog = null, val;
     if (i < 3) { val = S.phase === 'night' ? S.ammo[i] : Math.floor(v / 3); big = `x${val}`; prog = S.phase === 'night' ? null : (v % 3) / 3; }
     else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield / 10) : Math.round(v * 2); big = S.phase === 'night' ? `${val}` : `+${val}`; } // by day: armour banked for nightfall
-    else { val = S.phase === 'night' && NIGHT ? Math.round(NIGHT.plan.repair / 10) : Math.round(v); big = `+${val}`; } // by night: what the medics repaired
+    else { val = S.phase === 'night' ? Math.round((S.medicPool || 0) / 10) : Math.round(v); big = `+${val}`; } // by night: the medics' pool left
     const tier = i < 3 && S.phase === 'night' ? S.wtier[i] : tierOf(i, i < 3 ? Math.floor(v / 3) : val);
     ctx.font = '800 7.5px "JetBrains Mono", monospace';
     ctx.textAlign = 'left';

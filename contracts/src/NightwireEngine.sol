@@ -24,7 +24,8 @@ contract NightwireEngine {
     uint32 constant NIGHT_START = 2000;
     uint32 constant BOSS_AIM = 380;
     uint32 constant BOSS_FLIGHT = 700;
-    uint32 constant BOSS_GAP = 480;
+    uint32 constant MEDIC_PCT = 60;
+    uint32 constant MAX_BAZOOKA = 9;
 
     ICircuits public immutable armory;
     uint256[9] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden, omega (raid)
@@ -54,6 +55,7 @@ contract NightwireEngine {
         uint32 shield;
         uint32[5] charge;
         uint32 strikes;
+        uint32 bazooka; // loaded by matches of 5, fired at nightfall
         uint32 cascade;
         bool over;
         // boss
@@ -444,6 +446,7 @@ contract NightwireEngine {
                 _sc(g, k, CORE);
                 _ss(g, k, 0);
                 _addStrike(g);
+                if (g.bazooka < MAX_BAZOOKA) g.bazooka++;
             } else {
                 _ss(g, k, cr.sp[i]);
             }
@@ -624,6 +627,8 @@ contract NightwireEngine {
         uint32 rage;
         uint256 bossDmg;
         uint256 killT;
+        uint256 bz;
+        uint256 bzDmg;
         // events (merged shots and boss attacks), t | kind << 32 | dmg << 40 (kind 0..2 weapon, 3 boss)
         uint256[] ev;
         uint256 nev;
@@ -644,13 +649,12 @@ contract NightwireEngine {
         g.shield = uint32(sh > BASE_MAX ? BASE_MAX : sh);
         g.charge[3] = 0;
         uint256 repTier = _tierOf(4, g.charge[4] / 2);
-        uint256 heal = _rdiv(uint256(g.charge[4]) * _tierPct(repTier), 200) * 10;
-        uint256 room = BASE_MAX - g.base;
-        nt.heal = uint32(heal < room ? heal : room);
-        sh = g.shield + heal - nt.heal; // repairs the base can't use reinforce the dome
-        g.shield = uint32(sh > BASE_MAX ? BASE_MAX : sh);
+        nt.heal = uint32(_rdiv(uint256(g.charge[4]) * _tierPct(repTier), 200) * 10); // the medics' pool
         g.charge[4] = 0;
         nt.rage = g.rage;
+        nt.bz = g.bazooka;
+        nt.bzDmg = _rdiv(600 * nt.mulP, 100);
+        g.bazooka = 0;
 
         uint256 spacing;
         if (shots > 0) {
@@ -660,24 +664,35 @@ contract NightwireEngine {
         }
         uint256 attacks = 4 + g.stageNo + g.rage;
         nt.ev = new uint256[](shots + attacks);
+        uint256 dur = shots * spacing + 500;
+        if (dur < 4500) dur = 4500;
         uint256 bossDmg = _rdiv((6 + 3 * (g.stageNo - 1)) * 10 * (4 + g.rage), 4);
         nt.bossDmg = bossDmg;
-        // shots round-robin across weapons; the war machine shoots back only after our last volley has landed
+        // shots round-robin across weapons, then merge with boss attacks by time (shots first on ties)
         uint256[3] memory left = ammo;
+        uint256 j;
+        uint256 b;
+        uint256 shotT;
+        uint256 bossT = NIGHT_START + 600;
         uint256 w;
-        uint256 lastLand = NIGHT_START;
-        for (uint256 j; j < shots; j++) {
-            uint256 shotKind = _nextShot(left, w);
-            uint256 shotT = NIGHT_START + j * spacing;
-            uint256 base_ = shotKind == 0 ? 50 : shotKind == 1 ? 80 : 26;
-            uint256 dmg = _rdiv(base_ * nt.mulP * _tierPct(nt.wtier[shotKind]), 10000);
-            nt.ev[nt.nev++] = shotT | (shotKind << 32) | (dmg << 40);
-            uint256 land = shotT + (shotKind == 0 ? 160 : shotKind == 1 ? (nt.wtier[1] == 0 ? 700 : 500) : 750);
-            if (land > lastLand) lastLand = land;
-            left[shotKind]--;
-            w = shotKind + 1;
+        bool moreShots = shots > 0;
+        uint256 shotKind = _nextShot(left, w);
+        while (j < shots || b < attacks) {
+            if (moreShots && j < shots) shotT = NIGHT_START + j * spacing;
+            if (b < attacks) bossT = NIGHT_START + 600 + (b * dur) / attacks;
+            if (j < shots && (b >= attacks || shotT <= bossT)) {
+                uint256 base_ = shotKind == 0 ? 50 : shotKind == 1 ? 80 : 26;
+                uint256 dmg = _rdiv(base_ * nt.mulP * _tierPct(nt.wtier[shotKind]), 10000);
+                nt.ev[nt.nev++] = shotT | (shotKind << 32) | (dmg << 40);
+                left[shotKind]--;
+                j++;
+                w = shotKind + 1;
+                if (j < shots) shotKind = _nextShot(left, w);
+            } else {
+                nt.ev[nt.nev++] = bossT | (uint256(3) << 32) | (bossDmg << 40);
+                b++;
+            }
         }
-        for (uint256 b; b < attacks; b++) nt.ev[nt.nev++] = (lastLand + 600 + b * BOSS_GAP) | (uint256(3) << 32) | (bossDmg << 40);
     }
 
     function _refund(G memory g, Night memory nt, uint256 killT) internal pure {
@@ -715,9 +730,8 @@ contract NightwireEngine {
     function _runNight(G memory g, uint16[] memory strikes) internal view returns (uint8 outcome) {
         Night memory nt = _planNight(g);
         Heap memory h;
-        h.k = new uint256[](1 + nt.nev * 2 + strikes.length * 2 + 5);
+        h.k = new uint256[](1 + nt.nev * 2 + nt.bz + strikes.length * 2 + 5);
         h.v = new uint256[](h.k.length);
-        if (nt.heal > 0) _push(h, 1200, 0, nt.heal);
         uint256 nBoss;
         uint256 lastHit = NIGHT_START + 1200;
         for (uint256 i; i < nt.nev; i++) {
@@ -750,6 +764,11 @@ contract NightwireEngine {
             _push(h, tt, 2, d | (uint256(0xff) << 32)); // sid 0xff = not a bomb
             if (tt > lastHit) lastHit = tt;
         }
+        for (uint256 j; j < nt.bz; j++) { // bazookas: one heavy hit each
+            uint256 tb = NIGHT_START + 200 + j * 550 + 600;
+            _push(h, tb, 2, nt.bzDmg | (uint256(0xff) << 32));
+            if (tb > lastHit) lastHit = tb;
+        }
         // onslaught: after its regular attacks, a war machine still standing unleashes its signature weapon
         {
             uint256 slamAt = lastHit + 600;
@@ -771,9 +790,7 @@ contract NightwireEngine {
         while (h.n > 0) {
             (uint256 key, uint256 val) = _pop(h);
             uint256 typ = key & 0xff;
-            if (typ == 0) {
-                base += uint32(val);
-            } else if (typ == 6) {
+            if (typ == 6) {
                 if ((hp == 0) || g.strikes == 0) continue;
                 g.strikes--;
                 liveStrikes |= 1 << val;
@@ -795,6 +812,10 @@ contract NightwireEngine {
                 uint256 absorbed7 = val < shield ? val : shield;
                 shield -= uint32(absorbed7);
                 uint256 rest7 = val - absorbed7;
+                uint256 patch7 = _rdiv(rest7 * MEDIC_PCT, 100);
+                if (patch7 > nt.heal) patch7 = nt.heal;
+                nt.heal -= uint32(patch7);
+                rest7 -= patch7;
                 base = rest7 >= base ? 0 : base - uint32(rest7);
                 if (base == 0) {
                     g.base = 0;
@@ -822,6 +843,10 @@ contract NightwireEngine {
                     shield -= uint32(absorbed);
                     rest = dd - absorbed;
                 }
+                uint256 patch = _rdiv(rest * MEDIC_PCT, 100);
+                if (patch > nt.heal) patch = nt.heal;
+                nt.heal -= uint32(patch);
+                rest -= patch;
                 base = rest >= base ? 0 : base - uint32(rest);
                 if (base == 0) {
                     g.base = 0;
@@ -831,11 +856,19 @@ contract NightwireEngine {
                 }
             }
         }
+        if (nt.heal > 0) { // leftover repairs: the base first, then the dome
+            uint256 room = BASE_MAX - base;
+            uint256 heal = nt.heal < room ? nt.heal : room;
+            base += uint32(heal);
+            uint256 sh2 = shield + nt.heal - heal;
+            shield = uint32(sh2 > BASE_MAX ? BASE_MAX : sh2);
+        }
         g.hp = hp;
         g.base = base;
         g.shield = shield;
         if ((hp == 0)) {
             _refund(g, nt, nt.killT); // unfired shots go back to the arsenal
+            for (uint256 j; j < nt.bz; j++) if (NIGHT_START + 200 + j * 550 > nt.killT) g.bazooka++;
             g.score += 500 * g.stageNo;
             g.bossesDown++;
             g.stageNo++;

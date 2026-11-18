@@ -8,7 +8,7 @@
 
 ## What it is
 
-By day you swap munitions on an 8×8 board: bullets, shells, missiles, armour and wrenches. Matches arm real weapon tiers (M2 MG → Gatling → CIWS, Mortar → Howitzer → MLRS, Stinger → Javelin → Patriot), raise an Iron Dome shield and repair the base. Match 4 for a jet strafe, an L or T for a grenade, 5 for an airstrike beacon; long chains earn airstrikes. When the moves run out, your whole arsenal fires first, and only a war machine that survives it shoots back. If it survives, it holds the sky and shells you every few moves until you finish it.
+By day you swap munitions on an 8×8 board: bullets, shells, missiles, armour and wrenches. Matches arm real weapon tiers (M2 MG → Gatling → CIWS, Mortar → Howitzer → MLRS, Stinger → Javelin → Patriot), raise an Iron Dome shield and repair the base. Match 4 for a jet strafe, an L or T for a grenade, 5 for an airstrike beacon plus a bazooka round (heavy rockets that open the night); long chains earn airstrikes. When the moves run out, the war machine attacks and your arsenal fires back; the Iron Dome takes hits first, then medics on standby patch up most of each hit while their repair pool lasts. If it survives, it holds the sky and shells you every few moves until you finish it.
 
 Eight war machines (IRONCLAW, STORMWING, DREADNOUGHT, HIVE CARRIER, BEHEMOTH, SPECTRE, TITAN, WARDEN), each with its own brain chip and signature weapon.
 

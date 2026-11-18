@@ -28,6 +28,10 @@
         <svg viewBox="0 0 24 24"><path d="M21 12.5 13 10V5.2c0-.9-.5-1.7-1-1.7s-1 .8-1 1.7V10l-8 2.5v1.8l8-1.5V18l-2.2 1.6V21l3.2-.9 3.2.9v-1.4L13 18v-5.2l8 1.5z"/></svg>
         <span id="strikeTxt">0</span>
       </div>
+      <div class="pill strikes bz" id="bzBadge" title="Bazooka rounds (match 5): they open the night's fight">
+        <svg viewBox="0 0 24 24"><path d="M3 15.5 15.8 5.2l3 3.7L6 19.2zM16.8 4.4l2.4-1.9 2.3 2.9-2.4 1.9zM7.5 18l-1.2 3.5h2.4l.9-2.7z"/></svg>
+        <span id="bzTxt">0</span>
+      </div>
       <div class="score"><span class="lbl">SCORE</span><span id="scoreTxt">0</span></div>
       <button id="pauseBtn" class="iconbtn" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
       <button id="muteBtn" class="iconbtn" aria-label="Sound">
@@ -201,7 +205,7 @@
           <ul class="hw-list">
             <li><b class="hw-tag">MATCH 4</b><span><b>Jet strike</b>: a fighter strafes the whole row or column.</span></li>
             <li><b class="hw-tag">L or T</b><span><b>Grenade</b>: clears the 3×3 around it.</span></li>
-            <li><b class="hw-tag">MATCH 5</b><span><b>Airstrike beacon</b>: swap it with any munition and a bomber hits every one of that kind. Also earns an airstrike.</span></li>
+            <li><b class="hw-tag">MATCH 5</b><span><b>Airstrike beacon</b>: swap it with any munition and a bomber hits every one of that kind. Also earns an airstrike and loads a <b>bazooka</b>: heavy rockets that open the night's fight.</span></li>
             <li><b class="hw-tag">CHAIN 4+</b><span>Falling munitions keep matching: <b>+1 airstrike</b>. You can hold 9.</span></li>
           </ul>
         </section>
@@ -210,11 +214,11 @@
           <h2>Your arsenal fires on its own. You call the airstrikes.</h2>
           <ul class="hw-list">
             <li><b class="hw-tag blue">SHIELD</b><span>Armour you matched goes up at nightfall and stays until it's knocked down.</span></li>
-            <li><b class="hw-tag green">REPAIR</b><span>Wrenches repair the base when the battle starts. Base already full? The repairs go into your shield.</span></li>
+            <li><b class="hw-tag green">REPAIR</b><span>Wrenches put medics on standby: they patch up most of every hit that gets past your shield. Whatever they don't use repairs the base after the battle, then tops up the shield.</span></li>
             <li><b class="hw-tag gold">AIRSTRIKE</b><span>Tap <b>CALL AIRSTRIKE</b> during the battle. Don't save them until it's too late.</span></li>
             <li><b class="hw-tag red">BASE</b><span>Your base only falls in a night battle. Watch the bar under the turrets.</span></li>
           </ul>
-          <p>Your whole arsenal fires first: the war machine only shoots back once your last shot has landed. Destroy it: next stage, base repaired. If it survives, it fires its attacks, unleashes its <b>signature weapon</b>, then holds the sky and shells you every 4 moves until you finish it.</p>
+          <p>The war machine fires back while your arsenal fires: your shield takes the hits first, then your medics. Destroy it: next stage, base repaired. If it survives, it unleashes its <b>signature weapon</b>, then holds the sky and shells you every 4 moves until you finish it.</p>
         </section>
         <section class="hw-card">
           <div class="hw-kicker">THE WAR MACHINES THINK WITH REAL CHIPS</div>

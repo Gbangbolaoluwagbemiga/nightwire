@@ -104,7 +104,7 @@ export function newRun(seed, mk = plain, opts = {}) {
   const R = rng(seed), CR = rng(seed ^ 0x5bd1e995);
   const st = {
     seed, stageNo: 1, bossesDown: 0, score: 0, moves: MOVES_PER_DAY, base: BASE_MAX, baseMax: BASE_MAX, shield: 0, shieldMax: 1,
-    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid, hard: false, forge: null, // every rule flag set explicitly: the live game reuses one state object
+    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, bazooka: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid, hard: false, forge: null, // every rule flag set explicitly: the live game reuses one state object
   };
   if (opts.raid) { st.stageNo = RAID.stage; st.boss = makeRaidBoss(); }
   if (opts.hard && !opts.raid) st.hard = true;
@@ -239,6 +239,9 @@ export function resolveRuns(G, runs, swapped) {
   return { clear, creates };
 }
 
+// a match of 5 also loads a bazooka: heavy rockets that open the night's fight
+export const MAX_BAZOOKA = 9, BZ_FLIGHT = 600;
+export const bzTime = (j) => NIGHT_START + 200 + j * 550;
 function addStrike(st, fx, reason, g) {
   if (st.strikes >= MAX_STRIKES) return;
   st.strikes++;
@@ -285,7 +288,7 @@ export function applyClear(st, G, clear, creates, fx = NOFX) {
     if (!g) continue;
     if (cr.sp === 'core') { g.c = CORE; g.sp = null; } else g.sp = cr.sp;
     fx.create(g, cr.sp);
-    if (cr.sp === 'core') addStrike(st, fx, 'A match of 5', g);
+    if (cr.sp === 'core') { addStrike(st, fx, 'A match of 5', g); if (st.bazooka < MAX_BAZOOKA) { st.bazooka++; fx.bazooka(g); } }
   }
   if (n) st.score += n * 10 * st.cascade;
   return n;
@@ -363,11 +366,11 @@ export function planNight(st) {
   st.shield = Math.min(BASE_MAX, st.shield + rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * 10); // stacks on what is left
   st.charge[3] = 0;
   const repTier = tierOf(4, Math.floor(st.charge[4] / 2));
-  const repair = rdiv(st.charge[4] * TIER_PCT[repTier], 200) * 10;
-  const heal = Math.min(st.baseMax - st.base, repair);
-  st.shield = Math.min(BASE_MAX, st.shield + repair - heal); // repairs the base can't use reinforce the dome
+  const repair = rdiv(st.charge[4] * TIER_PCT[repTier], 200) * 10; // the medics' pool: they patch up hits as they land
   st.shieldMax = Math.max(1, st.shield);
   st.charge[4] = 0;
+  const bz = st.bazooka, bzDmg = rdiv(600 * mulP, 100);
+  st.bazooka = 0;
   const shots = [];
   const left = st.ammo.slice();
   while (left.some((n) => n > 0)) for (let w = 0; w < 3; w++) if (left[w] > 0) { left[w]--; shots.push(w); }
@@ -377,15 +380,12 @@ export function planNight(st) {
   const attacks = 4 + st.stageNo + rage + (veteran(st) ? VETERAN.extraAttacks : 0);
   let bossDmg = rdiv((6 + 3 * (st.stageNo - 1)) * 10 * (4 + rage), 4);
   if (veteran(st)) bossDmg = rdiv(bossDmg * VETERAN.dmgPct, 100);
-  // the war machine only shoots back once the whole arsenal has fired and its last volley has landed
-  let lastLand = NIGHT_START;
-  for (const e of events) lastLand = Math.max(lastLand, e.t + volleyHit(e.kind, st.wtier[e.kind], 0).at);
-  const bossFrom = lastLand + 600;
-  for (let j = 0; j < attacks; j++) events.push({ t: bossFrom + j * BOSS_GAP, kind: 'boss', dmg: bossDmg });
+  const dur = Math.max(4500, shots.length * spacing + 500); // the war machine fights back while the arsenal fires
+  for (let j = 0; j < attacks; j++) events.push({ t: NIGHT_START + 600 + Math.floor((j * dur) / attacks), kind: 'boss', dmg: bossDmg });
   events.sort((x, y) => x.t - y.t);
   events.forEach((e, i) => { e.id = i; });
   return {
-    events, heal, repair, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
+    events, repair, bz, bzDmg, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
     max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg, circuit: st.forge ? st.forge.circuit : null,
   };
 }
@@ -404,7 +404,8 @@ export function volleyHit(w, tier, dmg) {
 }
 export const BOMB = (j) => ({ delay: 150 + j * 90, d: 380 });
 export const STRIKE_LAND = 530; // ms after the call: the first bomb lands
-export const BOSS_AIM = 380, BOSS_FLIGHT = 700, BOSS_GAP = 480;
+export const BOSS_AIM = 380, BOSS_FLIGHT = 700;
+export const MEDIC_PCT = 60; // medics patch up to 60% of each hit that gets through, while their pool lasts
 
 // Resolve the whole fight from the plan and the airstrike call times. crState = crit RNG state at nightfall.
 export function simNight(plan, strikes, crState) {
@@ -413,7 +414,6 @@ export function simNight(plan, strikes, crState) {
   const items = [];
   let q = 0;
   const push = (t, o) => { o.t = t; o.q = q++; items.push(o); };
-  if (plan.heal > 0) push(1200, { type: 'heal', v: plan.heal });
   for (const ev of plan.events) {
     if (ev.kind === 'boss') {
       push(ev.t, { type: 'bfire', id: ev.id });
@@ -426,9 +426,14 @@ export function simNight(plan, strikes, crState) {
     const vh = volleyHit(ev.kind, tier, ev.dmg);
     push(ev.t + vh.at, { type: 'hit', src: ev.kind, dmg: vh.dmg, id: ev.id });
   }
+  for (let j = 0; j < plan.bz; j++) {
+    push(bzTime(j), { type: 'bzfire', j });
+    push(bzTime(j) + BZ_FLIGHT, { type: 'hit', src: 'bz', dmg: plan.bzDmg, j });
+  }
   // the onslaught: after its regular attacks, a war machine still standing unleashes its signature weapon
   let lastHit = NIGHT_START + 1200;
   for (const ev of plan.events) lastHit = Math.max(lastHit, ev.kind === 'boss' ? ev.t + BOSS_AIM + BOSS_FLIGHT : ev.t + volleyHit(ev.kind, plan.wtier[ev.kind], 0).at);
+  for (let j = 0; j < plan.bz; j++) lastHit = Math.max(lastHit, bzTime(j) + BZ_FLIGHT);
   const slamAt = lastHit + 600; // after its regular attacks
   const slamDmg = rdiv(plan.bossDmg * 6, 10);
   for (let k = 0; k < ONSLAUGHT_HITS; k++) {
@@ -442,15 +447,15 @@ export function simNight(plan, strikes, crState) {
   items.sort((x, y) => x.t - y.t || x.q - y.q);
 
   let hp = plan.hp, base = plan.base, shield = plan.shield, score = plan.score, left = plan.strikes, dead = false, over = false, killT = -1;
-  let brain = plan.brain.slice(), damage = 0;
+  let brain = plan.brain.slice(), damage = 0, pool = plan.repair;
+  const patchUp = (rest) => { const p = Math.min(pool, rdiv(rest * MEDIC_PCT, 100)); pool -= p; return p; };
   const circuit = plan.circuit || BRAINS[plan.type];
   const act = {};
   const live = new Set();
   const out = [];
   for (const it of items) {
     if (over) break;
-    if (it.type === 'heal') { base += it.v; out.push({ ...it, base }); }
-    else if (it.type === 'strike') {
+    if (it.type === 'strike') {
       if (dead || left <= 0) continue;
       left--;
       live.add(it.sid);
@@ -486,25 +491,40 @@ export function simNight(plan, strikes, crState) {
         shield -= absorbed;
         rest = dmg - absorbed;
       }
+      const patch = patchUp(rest);
+      rest -= patch;
       base = Math.max(0, base - rest);
-      out.push({ ...it, action, absorbed, rest, shield, base });
+      out.push({ ...it, action, absorbed, rest, patch, pool, shield, base });
       if (base <= 0) { over = true; out.push({ t: it.t, type: 'over' }); }
     } else if (it.type === 'slam') {
       if (dead) continue;
       const absorbed = Math.min(shield, it.dmg);
       shield -= absorbed;
-      const rest = it.dmg - absorbed;
+      const patch = patchUp(it.dmg - absorbed);
+      const rest = it.dmg - absorbed - patch;
       base = Math.max(0, base - rest);
-      out.push({ ...it, absorbed, rest, shield, base });
+      out.push({ ...it, absorbed, rest, patch, pool, shield, base });
       if (base <= 0) { over = true; out.push({ t: it.t, type: 'over' }); }
     } else if (it.type === 'blaunch') { if (!dead) out.push({ ...it, action: act[it.id] || 0 }); }
     else if (!dead) out.push(it); // fire
   }
+  // the medics' leftover pool repairs the base; whatever the base can't use reinforces the dome
+  if (!over && pool > 0) {
+    const heal = Math.min(plan.baseMax - base, pool);
+    base += heal;
+    shield = Math.min(BASE_MAX, shield + pool - heal);
+    out.push({ t: out.length ? out[out.length - 1].t : NIGHT_START, type: 'heal', v: heal, dome: pool - heal, base, shield });
+    pool = 0;
+  }
   // destroyed before the whole arsenal fired: the unfired shots go back to the arsenal (6 half-points each)
   const refund = [0, 0, 0];
-  if (dead) for (const ev of plan.events) if (ev.kind !== 'boss' && ev.t > killT) refund[ev.kind] += 6;
+  let bzBack = 0;
+  if (dead) {
+    for (const ev of plan.events) if (ev.kind !== 'boss' && ev.t > killT) refund[ev.kind] += 6;
+    for (let j = 0; j < plan.bz; j++) if (bzTime(j) > killT) bzBack++; // unfired rockets go back too
+  }
   return {
-    entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT, refund, damage,
+    entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT, refund, bzBack, damage,
     lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, base, shield, score, strikes: left, crEnd: CR.s, brain,
   };
 }
@@ -519,7 +539,7 @@ export function finishNight(run, script) {
   st.boss.brain = script.brain;
   st.damage += script.damage;
   st.ammo = [0, 0, 0];
-  if (script.outcome === 'kill') for (let w = 0; w < 3; w++) st.charge[w] += script.refund[w];
+  if (script.outcome === 'kill') { for (let w = 0; w < 3; w++) st.charge[w] += script.refund[w]; st.bazooka += script.bzBack; }
   run.CR.s = script.crEnd;
   if (script.outcome === 'over') st.over = true;
   return script.outcome;

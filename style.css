@@ -39,7 +39,11 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   padding: 0 calc(var(--u) * 14) 0 calc(var(--u) * 11); border-radius: 999px;
   background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px);
   font-family: "JetBrains Mono", monospace; font-weight: 800; font-size: calc(var(--u) * 14); letter-spacing: .06em;
+  white-space: nowrap; flex-shrink: 0;
 }
+#hud:has(#bzBadge.on) { gap: calc(var(--u) * 6); }
+#hud:has(#bzBadge.on) .stw { display: none; } /* crowded: the moon/sun icon + number say it */
+#hud:has(#bzBadge.on) .pill { padding: 0 calc(var(--u) * 9) 0 calc(var(--u) * 8); gap: calc(var(--u) * 5); letter-spacing: .02em; }
 .pill svg { width: calc(var(--u) * 18); height: calc(var(--u) * 18); fill: var(--amber); stroke: var(--amber); }
 #icoMoon { display: none; fill: #c7d2fe; stroke: none; }
 #stage.night #icoSun { display: none; }
@@ -61,6 +65,9 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .pill.strikes.on { opacity: 1; border-color: rgba(255, 210, 63, .6); }
 .pill.strikes.on svg { fill: #FFD23F; }
 .pill.strikes.bump { animation: bump .45s ease; }
+.pill.strikes.bz { display: none; opacity: 1; border-color: rgba(255, 122, 69, .6); padding: 0 calc(var(--u) * 10) 0 calc(var(--u) * 8); }
+.pill.strikes.bz.on { display: flex; }
+.pill.strikes.bz svg { fill: #FF7A45; }
 #strikeBtn {
   position: absolute; left: 50%; top: calc(var(--u) * var(--strikeY, 560)); transform: translate(-50%, 0) scale(.85); opacity: 0; pointer-events: none;
   display: flex; align-items: center; gap: calc(var(--u) * 10); padding: calc(var(--u) * 16) calc(var(--u) * 24); border-radius: calc(var(--u) * 20);
