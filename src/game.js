@@ -11,11 +11,31 @@ import { keccak256 } from './keccak.js';
 import { ONCHAIN } from './chips.js';
 
 // ================================================================ layout (logical units, portrait 390 x 860)
-const W = 390, H = 860;
+const W = 390;
+let H = 860; // logical height adapts to the phone: the game always fills the width
 const { N, CORE, MOVES_PER_DAY, TIER_MUL, tierOf, BOSSES } = E;
-const CELL = 45, BX = (W - N * CELL) / 2, BY = 404;
-const SKY_TOP = 60, BASE_Y = 296;
-const WBAR_Y = 336, WBAR_H = 54;
+const SKY_TOP = 60, WBAR_H = 54;
+const SKY_FROM = 98; // the boss's airspace starts under its health bar and chip readout
+const SKY_MIN = 124; // never squeeze the war machine smaller than this
+const BOTTOM_H = 52;
+let CELL = 45, BX = (W - N * CELL) / 2;
+let BY = 404, BASE_Y = 296, WBAR_Y = 336, BOTTOM_Y = 780, SKY_H = 236;
+// the munitions are as big as the screen allows once the sky has its minimum
+const cellFor = (h) => Math.floor((h - SKY_FROM - SKY_MIN - 38 - WBAR_H - 10 - 10 - BOTTOM_H - 14) / N);
+// lay out bottom-up from the screen's real height; the sky (the boss area) takes what is left
+function layout() {
+  CELL = Math.max(38, Math.min(48, cellFor(H)));
+  BX = (W - N * CELL) / 2;
+  BOTTOM_Y = H - BOTTOM_H - 12;
+  BY = BOTTOM_Y - 10 - N * CELL;
+  WBAR_Y = BY - 10 - WBAR_H;
+  BASE_Y = WBAR_Y - 38;
+  SKY_H = BASE_Y - SKY_FROM;
+  TURRETS[0].y = BASE_Y - 14; TURRETS[1].y = BASE_Y - 18; TURRETS[2].y = BASE_Y - 14;
+  STARS.forEach((st, i) => { st.y = SKY_TOP + ((i * 53.7) % Math.max(40, SKY_H - 80)); });
+}
+const skyY = (f) => SKY_FROM + SKY_H * f; // a height in the boss's airspace, as a fraction
+const skyS = () => Math.min(1.1, SKY_H / 196); // boss size follows the sky's height
 
 // munitions on the board -> the weapon they arm (3 upgrade tiers each)
 const GEMS = [
@@ -25,7 +45,7 @@ const GEMS = [
   { item: 'Armour', color: '#3FC8FF', dark: '#032F4C', tiers: ['SANDBAGS', 'ARMOUR', 'IRON DOME'] },
   { item: 'Wrenches', color: '#3DDC97', dark: '#03402A', tiers: ['MEDIC', 'ENGINEERS', 'FIELD HQ'] },
 ];
-const TURRETS = [{ x: 64, y: BASE_Y - 14 }, { x: 195, y: BASE_Y - 18 }, { x: 326, y: BASE_Y - 14 }];
+const TURRETS = [{ x: 64, y: 282 }, { x: 195, y: 278 }, { x: 326, y: 282 }];
 const cellX = (c) => BX + c * CELL + CELL / 2;
 const cellY = (r) => BY + r * CELL + CELL / 2;
 const wbarX = (i) => 8 + i * 75;
@@ -357,7 +377,20 @@ function drawBackground(c, night) {
 const STARS = Array.from({ length: 40 }, (_, i) => ({ x: (i * 97.3) % W, y: SKY_TOP + ((i * 53.7) % (BASE_Y - SKY_TOP - 80)), p: i * 1.3, s: i % 6 === 0 ? 2 : 1.2 }));
 
 function resize() {
-  scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  // fill the width; the height in logical units follows the screen (clamped so the sky never vanishes)
+  const vw = window.innerWidth, vh = window.innerHeight;
+  scale = vw / W;
+  H = vh / scale;
+  const minH = 38 * N + (SKY_FROM + SKY_MIN + 38 + WBAR_H + 10 + 10 + BOTTOM_H + 14); // smallest munitions still fit
+  if (H < minH) { H = minH; scale = vh / H; } // short/wide screens (desktop): fit the height, centered
+  else if (H > 980) H = 980; // very tall: cap, center vertically
+  H = Math.round(H);
+  layout();
+  stage.style.setProperty('--bottomY', `${BOTTOM_Y}`);
+  stage.style.setProperty('--bottomH', `${BOTTOM_H}`);
+  stage.style.setProperty('--strikeY', `${BY + 150}`);
+  stage.style.setProperty('--toastY', `${Math.max(SKY_TOP + 70, BASE_Y - 74)}`);
+  stage.style.setProperty('--bannerY', `${Math.round(skyY(0.3))}`);
   stage.style.width = `${W * scale}px`;
   stage.style.height = `${H * scale}px`;
   stage.style.setProperty('--u', `${scale}px`);
@@ -1007,7 +1040,7 @@ function newGame(mode = MODE) {
   P.forEach((p) => { p.on = false; });
   shownScore = 0;
   ui.score.textContent = '0';
-  S.bp = { x: 195, y: 112, s: 0.36 };
+  S.bp = { x: 195, y: skyY(0.22), s: 0.36 * skyS() };
   ui.title.classList.remove('show');
   ui.over.classList.remove('show');
   ui.ranks.classList.remove('show');
@@ -1671,8 +1704,8 @@ function rivalEvents() {
   const d = S.score - RIVAL.st.score, sgn = Math.sign(d);
   if (sgn && sgn !== S.lead && S.time - S.leadT > 4 && S.score + RIVAL.st.score > 300) {
     S.leadT = S.time;
-    if (sgn > 0) { text(195, 214, 'YOU TOOK THE LEAD', '#3DDC97', 14, 1.6, 10); sfx.upgrade(); }
-    else text(195, 214, 'RIVAL TAKES THE LEAD', '#ff6b6b', 14, 1.6, 10);
+    if (sgn > 0) { text(195, skyY(0.65), 'YOU TOOK THE LEAD', '#3DDC97', 14, 1.6, 10); sfx.upgrade(); }
+    else text(195, skyY(0.65), 'RIVAL TAKES THE LEAD', '#ff6b6b', 14, 1.6, 10);
   }
   if (sgn) S.lead = sgn;
 }
@@ -1763,9 +1796,10 @@ function update(dt) {
   if (b) {
     const day = S.phase !== 'night' && !(b.dying >= 0);
     const prog = 1 - S.moves / MOVES_PER_DAY;
-    const tgt = !day ? { x: 195, y: 172, s: 1 }
-      : b.present ? { x: 195 + Math.sin(S.time * 0.6) * 40, y: 150 + prog * 12, s: 0.72 + prog * 0.18 }
-        : { x: 195, y: 112 + prog * 26, s: 0.36 + prog * 0.24 };
+    const ks = skyS();
+    const tgt = !day ? { x: 195, y: skyY(0.47), s: ks }
+      : b.present ? { x: 195 + Math.sin(S.time * 0.6) * 40, y: skyY(0.38 + prog * 0.05), s: (0.72 + prog * 0.18) * ks }
+        : { x: 195, y: skyY(0.22 + prog * 0.11), s: (0.36 + prog * 0.24) * ks };
     const f = Math.min(1, dt * (day ? 3 : 2.4));
     S.bp.x += (tgt.x - S.bp.x) * f;
     S.bp.y += (tgt.y - S.bp.y) * f;

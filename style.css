@@ -62,7 +62,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .pill.strikes.on svg { fill: #FFD23F; }
 .pill.strikes.bump { animation: bump .45s ease; }
 #strikeBtn {
-  position: absolute; left: 50%; top: calc(var(--u) * 560); transform: translate(-50%, 0) scale(.85); opacity: 0; pointer-events: none;
+  position: absolute; left: 50%; top: calc(var(--u) * var(--strikeY, 560)); transform: translate(-50%, 0) scale(.85); opacity: 0; pointer-events: none;
   display: flex; align-items: center; gap: calc(var(--u) * 10); padding: calc(var(--u) * 16) calc(var(--u) * 24); border-radius: calc(var(--u) * 20);
   font-family: "JetBrains Mono", monospace; font-weight: 800; font-size: calc(var(--u) * 17); letter-spacing: .06em; color: #1a1200;
   background: linear-gradient(180deg, #ffe27a, #f5a524); box-shadow: 0 0 calc(var(--u) * 40) rgba(255, 190, 40, .55), inset 0 1px 0 rgba(255,255,255,.6);
@@ -75,7 +75,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 @keyframes strikePulse { 50% { box-shadow: 0 0 calc(var(--u) * 60) rgba(255, 190, 40, .85), inset 0 1px 0 rgba(255,255,255,.6); } }
 
 /* Bottom bar */
-#bottom { position: absolute; left: calc(var(--u) * 12); right: calc(var(--u) * 12); top: calc(var(--u) * 780); height: calc(var(--u) * 56); display: flex; gap: calc(var(--u) * 10); pointer-events: none; }
+#bottom { position: absolute; left: calc(var(--u) * 12); right: calc(var(--u) * 12); top: calc(var(--u) * var(--bottomY, 780)); height: calc(var(--u) * var(--bottomH, 56)); display: flex; gap: calc(var(--u) * 10); pointer-events: none; }
 #statusBox {
   flex: 1; height: 100%; border-radius: calc(var(--u) * 16); background: var(--panel); border: 1px solid var(--line);
   display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; transition: background .4s, border-color .4s;
@@ -116,7 +116,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 
 /* Toast + banner */
 #toast {
-  position: absolute; left: 50%; top: calc(var(--u) * 226); transform: translate(-50%, calc(var(--u) * -10)); max-width: calc(var(--u) * 350);
+  position: absolute; left: 50%; top: calc(var(--u) * var(--toastY, 226)); transform: translate(-50%, calc(var(--u) * -10)); max-width: calc(var(--u) * 350);
   padding: calc(var(--u) * 10) calc(var(--u) * 15); border-radius: calc(var(--u) * 14); background: rgba(10, 16, 28, .92); border: 1px solid var(--line);
   font-size: calc(var(--u) * 13.5); line-height: 1.35; text-align: center; opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease;
 }
@@ -124,7 +124,7 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 #toast.warn { border-color: rgba(255, 107, 107, .5); }
 #toast b { color: var(--green); }
 
-#banner { position: absolute; left: 0; right: 0; top: calc(var(--u) * 170); text-align: center; pointer-events: none; opacity: 0; }
+#banner { position: absolute; left: 0; right: 0; top: calc(var(--u) * var(--bannerY, 170)); text-align: center; pointer-events: none; opacity: 0; }
 #banner.show { animation: banner 1.9s cubic-bezier(.2,.8,.2,1) forwards; }
 @keyframes banner {
   0% { opacity: 0; transform: scale(.7); letter-spacing: .5em; }
