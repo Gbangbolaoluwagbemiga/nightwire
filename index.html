@@ -73,8 +73,9 @@
         <div class="seg lvls" id="lvlSeg"><button data-l="easy">Easy</button><button data-l="normal">Normal</button><button data-l="hard">Hard</button></div>
         <div class="raidcard" id="raidCard"><div class="rc-top"><b>OMEGA</b><span id="rcLeft">…</span></div><div class="rc-bar"><i id="rcFill"></i></div><div class="rc-sub" id="rcSub">World boss · everyone this week shares one health pool</div></div>
         <div class="livecard" id="liveCard">
+          <button class="lc-quick" id="lcQuick"><b>⚡ Find an opponent</b><span>Play anyone online now. Waits up to 60s.</span></button>
           <div class="lc-join" id="lcJoin"><span>Got a code?</span><input id="lcCode" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text"><button class="lc-btn" id="lcJoinBtn">Join</button></div>
-          <div class="lc-room" id="lcRoom"><div class="lc-code"><span>ROOM</span><b id="lcRoomCode">----</b></div><div class="lc-st" id="lcSt">Waiting for your friend…</div><div class="lc-acts"><button class="lc-btn hi" id="lcShare">Send invite</button><button class="lc-btn" id="lcCancel">Cancel</button></div></div>
+          <div class="lc-room" id="lcRoom"><div class="lc-code"><span>ROOM</span><b id="lcRoomCode">----</b></div><div class="lc-meter"><i id="lcMeter"></i></div><div class="lc-st" id="lcSt">Waiting for your friend…</div><div class="lc-acts"><button class="lc-btn hi" id="lcShare">Send invite</button><button class="lc-btn" id="lcCancel">Cancel</button></div></div>
         </div>
         <p class="modehint" id="modeHint"></p>
       </div>
@@ -240,7 +241,7 @@
             <li><b class="hw-tag">DAILY OP</b><span>One battlefield for everyone, every day.</span></li>
             <li><b class="hw-tag red">RAID</b><span>OMEGA, the weekly world boss. Everyone's damage comes off one health pool.</span></li>
             <li><b class="hw-tag">FORGE</b><span>Design your own war machine's brain and let others fight it.</span></li>
-            <li><b class="hw-tag">1v1 LIVE</b><span>Create a room, send your friend the code, and fight the same battlefield at the same time. Their base plays live beside yours.</span></li>
+            <li><b class="hw-tag">1v1 LIVE</b><span><b>Find an opponent</b> to play anyone online (waits up to 60s), or create a room and send a friend the code. Same battlefield, same incoming munitions, at the same time: no luck, just better ideas. Their base plays live beside yours.</span></li>
             <li><b class="hw-tag">DUELS</b><span>Send a friend your exact battlefield; your run plays beside them as a ghost.</span></li>
           </ul>
         </section>

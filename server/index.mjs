@@ -119,6 +119,7 @@ function raidState(week, me = null) {
 // live 1v1 rooms live in memory only (a redeploy ends open matches; nothing is scored from them)
 const rooms = new Map();
 const ROOM_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const QUICK_WAIT = Number(process.env.QUICK_WAIT_MS || 60_000); // an open quick-match room waits this long for an opponent
 function sweepRooms() { const old = Date.now() - 3600_000; for (const [k, r] of rooms) if (r.at < old) { for (const pl of r.p) for (const s of pl.subs) s.end(); rooms.delete(k); } }
 setInterval(sweepRooms, 600_000).unref();
 function roomPush(pl, ev, data, only = null) {
@@ -291,6 +292,32 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // ---- quick match: join the oldest open room still waiting, or open one that waits QUICK_WAIT for an opponent.
+    // Separate from invite rooms: only rooms opened here are ever matched with strangers.
+    if (req.method === 'POST' && url.pathname === '/live/quick') {
+      if (limited(ip, 20)) return send(res, 429, { error: 'slow down' });
+      const b = await body(req);
+      const me = ownerOf(b.pid);
+      const now = Date.now();
+      for (const [code, room] of rooms) {
+        if (!room.quick || room.startAt || room.p.length !== 1 || now - room.created > QUICK_WAIT || (me && room.owner === me)) continue;
+        if (!room.p[0].subs.size) continue; // its host is gone
+        const tok = crypto.randomBytes(12).toString('base64url');
+        room.p.push({ tok, name: cleanName(b.name), acts: [], subs: new Set() });
+        room.startAt = now + 4000;
+        room.at = now;
+        for (const pl of room.p) roomPush(pl, 'start', { startAt: room.startAt, now, names: room.p.map((x) => x.name) });
+        return send(res, 200, { code, tok, seed: room.seed, slot: 1, host: room.p[0].name, startAt: room.startAt, now, matched: true });
+      }
+      sweepRooms();
+      if (rooms.size > 2000) return send(res, 503, { error: 'too many rooms, try again soon' });
+      let code;
+      do code = Array.from(crypto.randomBytes(4), (x) => ROOM_ABC[x % ROOM_ABC.length]).join(''); while (rooms.has(code));
+      const tok = crypto.randomBytes(12).toString('base64url');
+      rooms.set(code, { quick: true, owner: me, created: now, seed: crypto.randomBytes(4).readUInt32BE(0), at: now, startAt: 0, p: [{ tok, name: cleanName(b.name), acts: [], subs: new Set() }] });
+      return send(res, 200, { code, tok, seed: rooms.get(code).seed, slot: 0, wait: QUICK_WAIT, matched: false });
+    }
+
     // ---- live 1v1: two players, one battlefield, each one's moves relayed to the other as they happen
     if (req.method === 'POST' && url.pathname === '/live') {
       if (limited(ip, 20)) return send(res, 429, { error: 'slow down' });
@@ -303,7 +330,7 @@ const server = http.createServer(async (req, res) => {
       rooms.set(code, { seed: crypto.randomBytes(4).readUInt32BE(0), at: Date.now(), startAt: 0, p: [{ tok, name: cleanName(b.name), acts: [], subs: new Set() }] });
       return send(res, 200, { code, tok, seed: rooms.get(code).seed, slot: 0 });
     }
-    const lm = url.pathname.match(/^\/live\/([A-Z]{4})\/(join|events|act)$/);
+    const lm = url.pathname.match(/^\/live\/([A-Z]{4})\/(join|events|act|leave)$/);
     if (lm) {
       const room = rooms.get(lm[1]);
       if (!room) return send(res, 404, { error: 'no such room (codes expire after an hour)' });
@@ -321,6 +348,10 @@ const server = http.createServer(async (req, res) => {
       const me = room.p.findIndex((x) => x.tok === url.searchParams.get('tok'));
       if (me < 0) return send(res, 403, { error: 'not in this room' });
       const them = room.p[1 - me];
+      if (req.method === 'POST' && lm[2] === 'leave') { // the host gave up waiting: close the room so nobody joins an empty one
+        if (!room.startAt) { for (const pl of room.p) for (const s2 of pl.subs) s2.end(); rooms.delete(lm[1]); }
+        return send(res, 200, { ok: true });
+      }
       if (req.method === 'GET' && lm[2] === 'events') { // server-sent events: catch up from ?from=n, then live
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'access-control-allow-origin': '*', 'x-accel-buffering': 'no' });
         res.write(': open\n\n');
@@ -330,7 +361,11 @@ const server = http.createServer(async (req, res) => {
         const from = Math.max(0, Number(url.searchParams.get('from')) || 0);
         if (them && them.acts.length > from) roomPush(pl, 'act', { from, acts: them.acts.slice(from) }, res);
         const ping = setInterval(() => res.write(': ping\n\n'), 20000);
-        req.on('close', () => { clearInterval(ping); pl.subs.delete(res); });
+        req.on('close', () => {
+          clearInterval(ping);
+          pl.subs.delete(res);
+          if (room.quick && !room.startAt && !pl.subs.size) setTimeout(() => { if (!room.startAt && !pl.subs.size) rooms.delete(lm[1]); }, 8000); // host left the queue
+        });
         return;
       }
       if (req.method === 'POST' && lm[2] === 'act') {

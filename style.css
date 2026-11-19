@@ -431,6 +431,14 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 #ranks .ranklist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding-right: 2px; }
 #ranks .ranknote { margin: calc(var(--u) * 8) 0; }
 /* Live 1v1 */
+.lc-quick { display: flex; flex-direction: column; align-items: flex-start; width: 100%; margin-bottom: calc(var(--u) * 10); padding: calc(var(--u) * 9) calc(var(--u) * 12); border-radius: calc(var(--u) * 11); background: linear-gradient(135deg, rgba(255, 210, 63, .22), rgba(255, 122, 69, .16)); border: 1px solid rgba(255, 210, 63, .6); text-align: left; }
+.lc-quick b { font-size: calc(var(--u) * 15); color: #FFD23F; }
+.lc-quick span { font-size: calc(var(--u) * 11.5); color: var(--muted); }
+.livecard.wait .lc-quick { display: none; }
+.livecard.quick .lc-code b { font-size: calc(var(--u) * 17); letter-spacing: .12em; }
+.lc-meter { height: calc(var(--u) * 4); margin: calc(var(--u) * 2) 0 calc(var(--u) * 8); border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; display: none; }
+.livecard.quick .lc-meter { display: block; }
+.lc-meter i { display: block; height: 100%; width: 100%; background: #FFD23F; transform-origin: left; }
 #modeSeg { gap: calc(var(--u) * 3); }
 #modeSeg button { font-size: calc(var(--u) * 12.5); white-space: nowrap; padding: 0 calc(var(--u) * 2); }
 #modeSeg .livebtn { flex: 1.35; color: #FFD23F; }
@@ -453,3 +461,4 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 .lc-st.go { color: #3DDC97; font-weight: 800; font-size: calc(var(--u) * 16); }
 .lc-acts { display: flex; gap: calc(var(--u) * 8); }
 .lc-acts .lc-btn { flex: 1; }
+.modehint .nomatch { color: #ff8a8a; }

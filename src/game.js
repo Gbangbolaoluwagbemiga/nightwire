@@ -1022,9 +1022,10 @@ function openLobby(L) {
   LOBBY = L;
   L.got = 0;
   L.queue = [];
-  $('lcRoomCode').textContent = L.code;
+  $('lcRoomCode').textContent = L.quick ? 'QUICK MATCH' : L.code;
   liveCard.classList.add('wait');
-  $('lcShare').style.display = L.slot === 0 ? '' : 'none';
+  liveCard.classList.toggle('quick', !!L.quick);
+  $('lcShare').style.display = L.slot === 0 && !L.quick ? '' : 'none';
   syncPick();
   L.es = API.liveEvents(L.code, L.tok, 0);
   L.es.addEventListener('start', (ev) => {
@@ -1032,6 +1033,8 @@ function openLobby(L) {
     L.them = d.names[1 - L.slot] || 'Friend';
     if (L.startAt) return;
     L.startAt = performance.now() + Math.max(0, d.startAt - d.now);
+    clearTimeout(L.giveUp);
+    $('lcMeter').style.transform = 'scaleX(1)';
     sfx.upgrade();
     const tick = () => {
       if (LOBBY !== L) return;
@@ -1055,10 +1058,38 @@ function leaveLobby(quit = true) {
   const L = LOBBY;
   if (!L) return;
   LOBBY = null;
+  clearTimeout(L.giveUp);
+  if (!L.startAt) API.leaveLive(L.code, L.tok).catch(() => {}); // nobody joined yet: close the room
   if (quit && L.sent !== undefined) API.liveAct(L.code, L.tok, L.sent, [...LOG.slice(L.sent), 'Q']).catch(() => {});
   try { L.es.close(); } catch { /* ignore */ }
-  liveCard.classList.remove('wait');
+  liveCard.classList.remove('wait', 'quick');
   lobbySt('Waiting for your friend…');
+}
+// quick match: take the oldest open room, or open one and wait up to 60s for anyone to join
+async function quickMatch() {
+  if (!API.enabled()) { toast('Live 1v1 needs the online server.', true, 2600); return; }
+  $('lcQuick').disabled = true;
+  try {
+    const r = await API.quickLive(callsign || 'Player');
+    const L = { code: r.code, tok: r.tok, seed: r.seed >>> 0, slot: r.slot, quick: true };
+    openLobby(L);
+    if (r.matched) { lobbySt(`Matched with ${r.host}…`, true); return; }
+    const until = performance.now() + r.wait;
+    const tick = () => {
+      if (LOBBY !== L || L.startAt) return;
+      const left = Math.max(0, until - performance.now());
+      $('lcMeter').style.transform = `scaleX(${left / r.wait})`;
+      lobbySt(`Searching for an opponent… ${Math.ceil(left / 1000)}s`);
+      if (left > 0) { L.giveUp = setTimeout(tick, 250); return; }
+      leaveLobby(false);
+      syncPick();
+      lobbySt('Waiting for your friend…');
+      sfx.deny();
+      $('modeHint').innerHTML = '<b class="nomatch">No opponent found.</b> Nobody joined in 60 seconds. Try again, or create a room and invite a friend.';
+    };
+    tick();
+  } catch (e) { toast(`Quick match: ${String(e.message).slice(0, 60)}`, true, 2600); }
+  $('lcQuick').disabled = false;
 }
 async function createRoom() {
   if (!API.enabled()) { toast('Live 1v1 needs the online server.', true, 2600); return; }
@@ -1100,6 +1131,7 @@ function liveFlush(force = false) {
     .finally(() => { liveBusy = false; });
 }
 setInterval(liveFlush, 250);
+$('lcQuick').addEventListener('click', () => { unlockAudio(); sfx.select(); quickMatch(); });
 $('lcJoinBtn').addEventListener('click', () => { unlockAudio(); joinRoom($('lcCode').value); });
 $('lcCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom($('lcCode').value); });
 $('lcCode').addEventListener('input', () => { $('lcCode').value = $('lcCode').value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
