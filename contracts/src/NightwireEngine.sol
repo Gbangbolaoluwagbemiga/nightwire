@@ -524,12 +524,15 @@ contract NightwireEngine {
         Creates memory cr;
         uint8 ga = _gc(g, b);
         uint8 gb = _gc(g, a);
+        uint8 squad = 0xff; // SQUADRON colour (beacon swapped with a fighter jet), 0xff = none
         if (ga == CORE || gb == CORE) {
             if (ga == CORE && gb == CORE) {
                 clear = type(uint64).max;
             } else {
                 uint256 core = ga == CORE ? b : a;
                 uint8 other = ga == CORE ? gb : ga;
+                uint8 osp = _gs(g, ga == CORE ? a : b);
+                if (osp == SP_ROW || osp == SP_COL) squad = other;
                 clear = uint64(1) << core;
                 for (uint256 k; k < 64; k++) {
                     if (_gc(g, k) == other) clear |= uint64(1) << k;
@@ -545,6 +548,12 @@ contract NightwireEngine {
         }
         _useMove(g);
         g.cascade = 1;
+        if (squad != 0xff) { // every plain item of that kind becomes a jet (checkerboard rows/columns), +1 airstrike
+            for (uint256 k; k < 64; k++) {
+                if (_gc(g, k) == squad && _gs(g, k) == 0) _ss(g, k, ((k >> 3) + (k & 7)) % 2 == 1 ? SP_COL : SP_ROW);
+            }
+            _addStrike(g);
+        }
         uint64 gone = _applyClear(g, clear, cr);
         while (true) {
             _dropAndRefill(g, gone);

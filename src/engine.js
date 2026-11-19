@@ -206,12 +206,22 @@ export function judgeSwap(G, a, b) {
       const core = ga.c === CORE ? b : a, other = ga.c === CORE ? gb : ga;
       clear.add(core[0] * N + core[1]);
       for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (G[r][c].c === other.c) clear.add(r * N + c);
+      // SQUADRON: beacon + fighter jet. Every item of that kind turns into a jet and they all strafe at once
+      if (other.sp === 'row' || other.sp === 'col') return { core: true, squad: other.c, clear, creates: new Map() };
     }
     return { core: true, clear, creates: new Map() };
   }
   const runs = findRuns(G);
   if (!runs.length) return null;
   return { core: false, ...resolveRuns(G, runs, [a, b]) };
+}
+
+// SQUADRON: every plain item of that kind becomes a fighter jet (rows and columns alternating like a
+// checkerboard), and the squadron earns an airstrike for the night. Call after useMove, before applyClear.
+export function armSquadron(st, G, j, fx = NOFX) {
+  if (j.squad === undefined) return;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { const g = G[r][c]; if (g.c === j.squad && !g.sp) g.sp = (r + c) % 2 ? 'col' : 'row'; }
+  addStrike(st, fx, 'A SQUADRON', null);
 }
 
 export function resolveRuns(G, runs, swapped) {
@@ -346,6 +356,7 @@ export function playMove(run, a, b, fx = NOFX, mk = plain) {
   if (!j) { swapGrid(G, a, b); return null; }
   const shot = useMove(st);
   st.cascade = 1;
+  armSquadron(st, G, j, fx);
   let cleared = applyClear(st, G, j.clear, j.creates, fx);
   for (;;) {
     dropAndRefill(G, R, mk);
@@ -356,7 +367,7 @@ export function playMove(run, a, b, fx = NOFX, mk = plain) {
     cleared += applyClear(st, G, rr.clear, rr.creates, fx);
   }
   const chain = st.cascade;
-  return { status: finishTurn(st, G, R, fx), shot, chain, cleared, core: j.core };
+  return { status: finishTurn(st, G, R, fx), shot, chain, cleared, core: j.core, squad: j.squad !== undefined };
 }
 
 // ---------------------------------------------------------------- night

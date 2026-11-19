@@ -18,6 +18,7 @@ for (let i = 0; i < count; i++) {
 }
 // chaos games: random legal moves and airstrike calls at random (often invalid) times
 const chaos = Number(process.argv[3] || 0);
+let squadrons = 0;
 for (let i = 0; i < chaos; i++) {
   const seed = (0x85ebca6b * (i + 7)) >>> 0;
   const run = E.newRun(seed);
@@ -31,9 +32,13 @@ for (let i = 0; i < chaos; i++) {
       continue;
     }
     const moves = E.listMoves(run.G);
-    const m = moves[Math.floor(Math.random() * moves.length)];
+    // half the chaos games grab every beacon + fighter-jet swap (SQUADRON) they can find, so it is covered
+    const isJet = (g) => g.sp === 'row' || g.sp === 'col';
+    const sq = i % 2 ? moves.filter(([x, y]) => { const p = run.G[x[0]][x[1]], q = run.G[y[0]][y[1]]; return (p.c === E.CORE && isJet(q)) || (q.c === E.CORE && isJet(p)); }) : [];
+    const m = sq.length ? sq[0] : moves[Math.floor(Math.random() * moves.length)];
     log.push(E.encodeMove(m[0], m[1]));
-    E.playMove(run, m[0], m[1]);
+    const res = E.playMove(run, m[0], m[1]);
+    if (res && res.squad) squadrons++;
   }
   const chk = E.replay(seed, log);
   if (!chk.ok || chk.st.score !== run.st.score) throw new Error(`JS replay mismatch on chaos game ${i}`);
@@ -78,3 +83,4 @@ designs.forEach((d, di) => {
 });
 fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JSON.stringify({ count: games.length, games, day: DAY, daily, week: WEEK, raidCount: raid.length, raid, forgeCount: forge.length, forge }));
 console.log(`wrote ${games.length} games; actions ${Math.min(...games.map((g) => g.n))}..${Math.max(...games.map((g) => g.n))}; bytes up to ${Math.max(...games.map((g) => (g.actions.length - 2) / 2))}`);
+console.log(`SQUADRON combos in the chaos games: ${squadrons}`);

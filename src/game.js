@@ -571,6 +571,12 @@ function afterSwap() {
   LOG.push(E.encodeMove(a, b));
   useMove();
   S.cascade = 1;
+  if (j.squad !== undefined) { // SQUADRON: the beacon turns every item of that kind into a fighter jet
+    E.armSquadron(S, G, j, FX);
+    banner('SQUADRON!', 'Every one of them scrambles');
+    S.shake = 16;
+    buzz(60);
+  }
   if (j.core) { // airstrike beacon: a bomber hits every item of that kind
     S.fx.push({ type: 'bomber', t: 0, d: 0.75 });
     let n = 0;
