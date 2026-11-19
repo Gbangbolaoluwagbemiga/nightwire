@@ -7,6 +7,7 @@ export const LEVELS = {
   normal: { label: 'NORMAL', pace: 1.7 },
   hard: { label: 'HARD', pace: 1.3 },
   ghost: { label: 'FRIEND', pace: 1.6 },
+  live: { label: 'LIVE', pace: 0.25 }, // a real player: their moves arrive over the network and play out as they land
 };
 
 function cloneRun(run) {
@@ -53,7 +54,7 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
   const cfg = LEVELS[level];
   const R = {
     run, level, label: cfg.label, phase: 'day', timer: 1.4, night: null, flash: [], ev: [], log: [], dirty: true,
-    actions: ghostActions ? ghostActions.slice() : null, finished: false,
+    actions: ghostActions ? ghostActions.slice() : null, finished: false, live: level === 'live', waitNight: false, left: false,
     get st() { return run.st; },
   };
 
@@ -113,7 +114,9 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
   function doMove() {
     let a, b;
     if (R.actions) {
+      if (R.live && !R.actions.length) return; // their next move has not arrived yet
       const s = R.actions.shift();
+      if (s === 'Q') { R.phase = 'over'; R.finished = true; R.left = true; emit('left'); return; }
       if (!s || s[0] === 'N') { R.phase = 'over'; R.finished = true; return; }
       const act = E.parseAction(s);
       a = act.a; b = act.b;
@@ -134,7 +137,7 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
     if (res.chain >= 3) emit('chain', { n: res.chain });
     if (res.core) emit('bomber');
     if (res.status === 'over') { R.phase = 'over'; R.finished = true; emit('fell'); }
-    else if (res.status === 'night') beginNight();
+    else if (res.status === 'night') { if (R.live && (!R.actions.length || R.actions[0] === 'Q')) R.waitNight = true; else beginNight(); }
   }
 
   function beginNight() {
@@ -171,13 +174,18 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
   R.update = (dt) => {
     for (const f of R.flash) f[2] -= dt;
     if (R.flash.length && R.flash.every((f) => f[2] <= 0)) R.flash = [];
-    if (R.phase === 'day') {
+    if (R.phase === 'day' && R.waitNight) {
+      if (R.actions.length) {
+        if (R.actions[0] === 'Q') { R.actions.shift(); R.phase = 'over'; R.finished = true; R.left = true; emit('left'); }
+        else { R.waitNight = false; beginNight(); }
+      }
+    } else if (R.phase === 'day') {
       R.timer -= dt;
       const ready = R.actions || dt === 0 || think(3);
-      if (R.timer <= 0 && ready) { R.timer = cfg.pace * (0.75 + Math.random() * 0.5); doMove(); }
+      if (R.timer <= 0 && ready) { R.timer = R.live ? (R.actions.length > 3 ? 0.08 : cfg.pace) : cfg.pace * (0.75 + Math.random() * 0.5); doMove(); }
     } else if (R.phase === 'night') {
       const n = R.night;
-      n.t += dt * 1000;
+      n.t += dt * 1000 * (R.live && R.actions.length > 6 ? 3 : 1);
       while (n.i < n.script.entries.length && n.script.entries[n.i].t <= n.t) {
         const e = n.script.entries[n.i++];
         if (e.hp !== undefined) n.hp = e.hp;

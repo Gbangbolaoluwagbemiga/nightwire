@@ -964,6 +964,7 @@ const HINTS = {
   aiHard: 'Hard: veteran rules from stage 3 for both of you. Tougher, angrier war machines.',
   daily: 'One battlefield for everyone today. New one at 00:00 UTC.',
   raid: 'You cannot kill it alone. Every run\'s damage comes off one shared health pool.',
+  live: 'Play a friend in real time on the same battlefield. Create a room, send the code, watch their base beside yours.',
 };
 let raidInfo = null;
 async function loadRaid() {
@@ -977,6 +978,7 @@ async function loadRaid() {
     $('rcSub').textContent = raidInfo.down ? `Destroyed by ${raidInfo.raiders} raiders. Keep hitting it for the board.` : `${raidInfo.raiders} raider${raidInfo.raiders === 1 ? '' : 's'} · ${raidInfo.runs} runs · ${days} day${days === 1 ? '' : 's'} left this week`;
   } catch { $('rcSub').textContent = 'World boss · could not reach the raid server'; }
 }
+let LOBBY = null; // live 1v1 room: { code, tok, seed, slot, es, startAt, them, got, queue, sent }
 function syncPick() {
   if (pick.kind === 'duel' && !DUEL) pick.kind = 'solo';
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === pick.kind));
@@ -986,6 +988,10 @@ function syncPick() {
   $('raidCard').classList.toggle('on', pick.kind === 'raid');
   if (pick.kind === 'raid') loadRaid();
   $('duelCard').classList.toggle('on', pick.kind === 'duel');
+  $('liveCard').classList.toggle('on', pick.kind === 'live');
+  $('playBtn').textContent = pick.kind === 'live' ? 'Create room' : 'Play';
+  $('playBtn').style.display = pick.kind === 'live' && LOBBY ? 'none' : '';
+  if (pick.kind !== 'live' && LOBBY) leaveLobby();
   const best = loadRuns().filter((r) => r.mode === pick.kind).reduce((m, r) => Math.max(m, r.score), pick.kind === 'solo' ? S.best : 0);
   ui.best.textContent = fmt(best);
   try { localStorage.setItem('nw-pick', JSON.stringify({ level: pick.level })); } catch { /* ignore */ }
@@ -999,13 +1005,114 @@ function modeFromPick() {
   if (pick.kind === 'duel') return { kind: 'duel', level: null, seed: DUEL.seed, ghost: DUEL };
   return { kind: 'solo', level: null, seed: 0 };
 }
-$('playBtn').addEventListener('click', () => { unlockAudio(); newGame(modeFromPick()); });
-$('againBtn').addEventListener('click', () => { unlockAudio(); newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
+$('playBtn').addEventListener('click', () => { unlockAudio(); if (pick.kind === 'live') createRoom(); else newGame(modeFromPick()); });
+
+// ---------------------------------------------------------------- live 1v1
+// A room on the API server: both players get the same seed, start together, and each one's actions are relayed
+// to the other. The friend's board runs on the same engine in the rival card, so you watch their real game.
+const liveCard = $('liveCard');
+function lobbySt(t, go = false) { $('lcSt').textContent = t; $('lcSt').classList.toggle('go', go); }
+function openLobby(L) {
+  LOBBY = L;
+  L.got = 0;
+  L.queue = [];
+  $('lcRoomCode').textContent = L.code;
+  liveCard.classList.add('wait');
+  $('lcShare').style.display = L.slot === 0 ? '' : 'none';
+  syncPick();
+  L.es = API.liveEvents(L.code, L.tok, 0);
+  L.es.addEventListener('start', (ev) => {
+    const d = JSON.parse(ev.data);
+    L.them = d.names[1 - L.slot] || 'Friend';
+    if (L.startAt) return;
+    L.startAt = performance.now() + Math.max(0, d.startAt - d.now);
+    sfx.upgrade();
+    const tick = () => {
+      if (LOBBY !== L) return;
+      const left = Math.ceil((L.startAt - performance.now()) / 1000);
+      if (left > 0) { lobbySt(`${L.them} is in. Starting in ${left}…`, true); setTimeout(tick, 120); return; }
+      startLive(L);
+    };
+    tick();
+  });
+  L.es.addEventListener('act', (ev) => {
+    const d = JSON.parse(ev.data);
+    const fresh = d.acts.slice(Math.max(0, L.got - d.from));
+    if (d.from > L.got) return; // a gap: the reconnect will resend from the start
+    L.got += fresh.length;
+    L.queue.push(...fresh);
+    if (RIVAL && RIVAL.live && MODE.live === L) RIVAL.actions.push(...fresh);
+  });
+  L.es.onerror = () => { if (LOBBY === L && !L.startAt) lobbySt('Connection dropped, retrying…'); };
+}
+function leaveLobby(quit = true) {
+  const L = LOBBY;
+  if (!L) return;
+  LOBBY = null;
+  if (quit && L.sent !== undefined) API.liveAct(L.code, L.tok, L.sent, [...LOG.slice(L.sent), 'Q']).catch(() => {});
+  try { L.es.close(); } catch { /* ignore */ }
+  liveCard.classList.remove('wait');
+  lobbySt('Waiting for your friend…');
+}
+async function createRoom() {
+  if (!API.enabled()) { toast('Live 1v1 needs the online server.', true, 2600); return; }
+  $('playBtn').disabled = true;
+  try {
+    const r = await API.createLive(callsign || 'Player');
+    openLobby({ code: r.code, tok: r.tok, seed: r.seed >>> 0, slot: 0 });
+    lobbySt('Waiting for your friend… send them the code.');
+  } catch (e) { toast(`Could not open a room: ${String(e.message).slice(0, 60)}`, true, 2600); }
+  $('playBtn').disabled = false;
+}
+async function joinRoom(code) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (code.length !== 4) { toast('Room codes are 4 letters.', true, 2000); return; }
+  if (!API.enabled()) { toast('Live 1v1 needs the online server.', true, 2600); return; }
+  $('lcJoinBtn').disabled = true;
+  try {
+    const r = await API.joinLive(code, callsign || 'Player');
+    openLobby({ code, tok: r.tok, seed: r.seed >>> 0, slot: 1 });
+    lobbySt(`Joined ${r.host}'s room…`);
+  } catch (e) { toast(String(e.message).slice(0, 70), true, 2600); }
+  $('lcJoinBtn').disabled = false;
+}
+function startLive(L) {
+  lobbySt('Fight!', true);
+  L.sent = 0;
+  newGame({ kind: 'live', level: null, seed: L.seed, live: L });
+}
+// send our new actions to the room (one request in flight; a failed send is retried from where the server is)
+let liveBusy = false;
+function liveFlush(force = false) {
+  const L = MODE.live;
+  if (!L || LOBBY !== L || liveBusy || L.sent === undefined) return;
+  if (L.sent >= LOG.length && !force) return;
+  liveBusy = true;
+  API.liveAct(L.code, L.tok, L.sent, LOG.slice(L.sent))
+    .then((r) => { L.sent = r.n; })
+    .catch(() => {})
+    .finally(() => { liveBusy = false; });
+}
+setInterval(liveFlush, 250);
+$('lcJoinBtn').addEventListener('click', () => { unlockAudio(); joinRoom($('lcCode').value); });
+$('lcCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom($('lcCode').value); });
+$('lcCode').addEventListener('input', () => { $('lcCode').value = $('lcCode').value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
+$('lcCancel').addEventListener('click', () => { sfx.select(); leaveLobby(); syncPick(); });
+$('lcShare').addEventListener('click', async () => {
+  if (!LOBBY) return;
+  const url = `${location.origin}${location.pathname}#live=${LOBBY.code}`;
+  const text = `Fight me live in Nightwire. Room ${LOBBY.code}`;
+  try {
+    if (navigator.share) await navigator.share({ title: 'Nightwire 1v1', text, url });
+    else { await navigator.clipboard.writeText(`${text}: ${url}`); toast('Invite link copied', false, 1800); }
+  } catch { /* cancelled */ }
+});
+$('againBtn').addEventListener('click', () => { unlockAudio(); if (MODE.kind === 'live') { pick.kind = 'live'; if (gameGuard) { gameGuard = false; dropOverlay(); } goMenu(); return; } newGame({ ...MODE, seed: MODE.kind === 'solo' || MODE.kind === 'ai' ? 0 : MODE.seed }); });
 $('menuBtn').addEventListener('click', () => { if (gameGuard) { gameGuard = false; dropOverlay(); } goMenu(); });
 $('quitResume').addEventListener('click', () => { closeSheet(); setTimeout(guardGame, 60); });
 $('quitLeave').addEventListener('click', () => {
   closeSheet();
-  setTimeout(() => { if (gameGuard) { gameGuard = false; dropOverlay(); } S.phase = 'over'; goMenu(); }, 80);
+  setTimeout(() => { if (gameGuard) { gameGuard = false; dropOverlay(); } if (LOBBY) leaveLobby(true); S.phase = 'over'; goMenu(); }, 80);
 });
 $('pauseBtn').addEventListener('click', () => { // the on-screen way out: same panel as the Back button
   unlockAudio();
@@ -1029,7 +1136,7 @@ document.querySelector('#rankSeg button[data-m=global]').hidden = !API.enabled()
 $('callsign').addEventListener('change', (e) => setCallsign(e.target.value));
 $('callBtn').addEventListener('click', () => { unlockAudio(); openSheet('name'); $('nameInput').value = callsign; $('nameSt').textContent = ''; setTimeout(() => $('nameInput').focus(), 300); });
 $('nameSave').addEventListener('click', async () => { const v = cleanCall($('nameInput').value); if (!v) { $('nameSt').textContent = 'Use letters, numbers, spaces, - _ or .'; return; } await setCallsign(v); sfx.upgrade(); closeSheet(); });
-$('ranksBtn').addEventListener('click', () => { sfx.select(); pushOverlay(closeRanksNow); showRanks(pick.kind === 'duel' || pick.kind === 'forge' ? 'solo' : pick.kind); });
+$('ranksBtn').addEventListener('click', () => { sfx.select(); pushOverlay(closeRanksNow); showRanks(pick.kind === 'duel' || pick.kind === 'forge' || pick.kind === 'live' ? 'solo' : pick.kind); });
 function closeRanksNow() { if (!ui.ranks.classList.contains('show')) return; ui.ranks.classList.remove('show'); ui.title.classList.add('show'); syncPick(); }
 document.querySelectorAll('#rankSeg button').forEach((b) => b.addEventListener('click', () => showRanks(b.dataset.m)));
 $('ranksBack').addEventListener('click', backOverlay);
@@ -1052,10 +1159,11 @@ function newGame(mode = MODE) {
   G = RUN.G;
   LOG = [];
   NIGHT = null;
-  RIVAL = MODE.kind === 'ai' ? makeRival(MODE.seed, MODE.level, null, rules) : MODE.kind === 'duel' ? makeRival(MODE.seed, 'ghost', MODE.ghost.actions, rules) : null;
+  RIVAL = MODE.kind === 'ai' ? makeRival(MODE.seed, MODE.level, null, rules) : MODE.kind === 'duel' ? makeRival(MODE.seed, 'ghost', MODE.ghost.actions, rules) : MODE.kind === 'live' ? makeRival(MODE.seed, 'live', MODE.live.queue, rules) : null;
   rv.box.classList.toggle('show', !!RIVAL);
   rvLast = {};
-  if (RIVAL) rv.name.textContent = MODE.kind === 'duel' ? 'FRIEND' : `AI · ${LEVELS[MODE.level].label}`;
+  if (RIVAL) rv.name.textContent = MODE.kind === 'duel' ? 'FRIEND' : MODE.kind === 'live' ? `● ${MODE.live.them.toUpperCase()}` : `AI · ${LEVELS[MODE.level].label}`;
+  if (MODE.kind !== 'live' && LOBBY) leaveLobby();
   ORBS.forEach((o) => { o.on = false; });
   P.forEach((p) => { p.on = false; });
   shownScore = 0;
@@ -1077,6 +1185,7 @@ function startDay(first = false) {
   bumpMoves();
   if (first) {
     const msg = MODE.kind === 'ai' ? `Same battlefield as the <b>AI commander</b>. Outscore it!`
+      : MODE.kind === 'live' ? `<b>LIVE</b> vs ${MODE.live.them.replace(/[<>&]/g, '')}. Same battlefield. Outscore them!`
       : MODE.kind === 'duel' ? `Your friend scored <b>${MODE.ghost.score}</b> on this exact battlefield. Beat it!`
         : MODE.kind === 'daily' ? `<b>Daily Op</b>: everyone fights this battlefield today.`
           : MODE.kind === 'raid' ? `<b>OMEGA</b> is over the city. Hit it as hard as you can before your base falls.`
@@ -1259,10 +1368,22 @@ function callAirstrike() {
 
 function hitBoss(e) {
   const b = S.boss;
+  const hadArmor = b.armor > 0;
   b.hp = e.hp;
+  if (e.armor !== undefined) b.armor = e.armor; // display; finishNight writes the same value
   S.score = e.score;
-  S.nightDmg += e.d;
+  S.nightDmg += e.d + (e.ad || 0);
   b.flash = 0.08;
+  if (e.ad > 0) { // the round hit steel
+    const x = S.bp.x + (Math.random() - 0.5) * 90 * S.bp.s, y = S.bp.y + (Math.random() - 0.2) * 40 * S.bp.s;
+    spark(x, y, '#d7e3ec', lowPower ? 4 : 9, 200, 3.2, 0.3);
+    if (hadArmor && b.armor <= 0) { // plating gone: the hull is exposed
+      text(S.bp.x, S.bp.y - 40 * S.bp.s, 'ARMOUR BROKEN', '#FFD23F', 17, 1.4, 30);
+      S.fx.push({ type: 'ring', x: S.bp.x, y: S.bp.y, r: 0, max: 130, t: 0, d: 0.6, color: '#d7e3ec' });
+      S.shake = Math.max(S.shake, 9); smoke(S.bp.x, S.bp.y, 12); sfx.cannon(); buzz(60);
+    } else if (e.src === 0 && !e.d) { if (Math.random() < 0.35) text(x, y - 8, 'CLANK', '#9FB4C2', 11, 0.6, 30); sfx.impact(); return; }
+    else if (!e.d) { text(x, y - 10, `−${Math.ceil(e.ad / 10)} ARMOUR`, '#d7e3ec', e.src === 'bz' ? 15 : 12, 0.8, 40); if (e.src === 'bz') { S.fx.push({ type: 'ring', x, y, r: 0, max: 90, t: 0, d: 0.5, color: '#FF7A45' }); S.shake = Math.max(S.shake, 6); smoke(x, y, 8); } sfx.impact(); return; }
+  }
   const big = e.src === 1 || e.src === 'bomb' || e.src === 'bz';
   const color = e.src === 'bomb' ? '#ffb347' : e.src === 'bz' ? '#FF7A45' : GEMS[e.src].color;
   const x = S.bp.x + (Math.random() - 0.5) * 80 * S.bp.s, y = S.bp.y + (Math.random() - 0.3) * 44 * S.bp.s;
@@ -1370,7 +1491,8 @@ function bossDefeated() {
     E.nextStage(S);
     S.bp = { x: 195, y: -80, s: 0.3 };
     startDay();
-    toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) inbound`, true, 3000);
+    if (S.boss.armorMax) toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b>, full armour. Bullets ping off: stack <b>mortars</b>, airstrikes and <b>bazookas</b> to crack it.`, true, 4600);
+    else toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) inbound`, true, 3000);
   }, 2000);
 }
 
@@ -1407,6 +1529,7 @@ let lastResult = null;
 function gameOver() {
   if (S.phase === 'over') return;
   S.phase = 'over';
+  if (MODE.kind === 'live') liveFlush(true);
   stage.classList.remove('playing');
   S.slow = 0.3;
   ui.strikeBtn.classList.remove('show');
@@ -1430,7 +1553,7 @@ function gameOver() {
       .then((r) => { raidInfo = r.raid; const left = Math.max(0, r.raid.poolHp - r.raid.dealt); $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · raider <b>#${r.rank}</b> this week · OMEGA ${r.raid.down ? '<b>is DOWN</b>' : `has <b>${fmt(left / 10)} HP</b> left`}`; })
       .catch((e) => { $('ovGlobal').textContent = `Raid: ${String(e.message).slice(0, 80)}`; });
   } else if (ok && S.score > 0 && API.enabled() && MODE.kind !== 'duel') {
-    API.submitRun({ mode: MODE.kind, level: MODE.level, day: MODE.day, seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous' })
+    API.submitRun({ mode: MODE.kind === 'live' ? 'solo' : MODE.kind, level: MODE.level, day: MODE.day, seed: MODE.seed, actions: LOG, name: callsign || 'Anonymous' })
       .then((r) => { $('ovGlobal').innerHTML = `<span class="ok">✓</span> Replayed by the server · global rank <b>#${r.rank}</b>${MODE.kind === 'daily' ? ' today' : ''}`; })
       .catch((e) => { $('ovGlobal').textContent = `Global board: ${String(e.message).slice(0, 80)}`; });
   }
@@ -1466,7 +1589,17 @@ function gameOver() {
         if (win) sfx.bossDown();
       };
       if (RIVAL.finished) show();
-      else { $('vsThem').textContent = '…'; $('vsThemS').textContent = 'still fighting'; RIVAL.fastForward(show); }
+      else if (RIVAL.live) { // they are still playing: follow their score live until their base falls too
+        $('ovTitle').textContent = 'WAITING…';
+        const R = RIVAL;
+        const follow = () => {
+          if (RIVAL !== R) return;
+          $('vsThem').textContent = fmt(R.st.score);
+          $('vsThemS').textContent = `stage ${R.st.stageNo} · still fighting`;
+          if (R.finished) { show(); if (R.left) $('vsThemS').textContent = `stage ${R.st.stageNo} · left`; } else setTimeout(follow, 300);
+        };
+        follow();
+      } else { $('vsThem').textContent = '…'; $('vsThemS').textContent = 'still fighting'; RIVAL.fastForward(show); }
     }
     ui.toast.classList.remove('show');
     rv.box.classList.remove('show');
@@ -1504,6 +1637,7 @@ function onGameBack() {
   goMenu();
 }
 function goMenu() {
+  if (LOBBY) leaveLobby(S.phase === 'day' || S.phase === 'night');
   stage.classList.remove('playing');
   ui.over.classList.remove('show');
   ui.title.classList.add('show');
@@ -1545,6 +1679,7 @@ const PERSONA = [
   'Gait: barrage, barrage, focus, in step with its six legs; always focus fire when critical. Two LATCHes count the steps.',
   'Orbital: charges its lance every other beat; when critical it repairs on the off-beats. One LATCH is the charge.',
   'World boss: a four-beat cycle. Barrage, focus fire, EMP if your shield is up, then focus fire once enraged. Two LATCHes keep the beat.',
+  'Armoured tanker: never repairs, its plating does that job. A three-beat main gun: the third shot EMPs a raised dome; with the dome down it focus-fires on alternate shots. Two LATCHes count the beat.',
 ];
 const inspector = makeInspector($('chipSheet'), {
   onTap: () => sfx.select(),
@@ -1555,7 +1690,7 @@ const inspector = makeInspector($('chipSheet'), {
       document.querySelectorAll('#chSeg button').forEach((x) => x.classList.remove('on'));
       return;
     }
-    const b = type === 8 ? { name: 'OMEGA' } : E.BOSSES[type], ch = E.brainOf(type).chip;
+    const b = type === 8 ? { name: 'OMEGA' } : E.BOSSES.find((x) => x.type === type), ch = E.brainOf(type).chip;
     $('chName').textContent = `${b.name} brain`;
     const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${ONCHAIN.first + type} on TapeOut processor ${ONCHAIN.processor.slice(0, 8)}…, X Layer.` : 'Taped out on X Layer at launch.';
     $('chInfo').textContent = `${c.nand} NAND + ${c.latch} LATCH · ${(ch.netlist.length - 2) / 2}-byte netlist. ${PERSONA[type]} ${where}`;
@@ -1694,11 +1829,11 @@ async function showGlobalRanks() {
     const you = '<span class="you">YOU</span>';
     const rows = (bd) => {
       const xs = bd.rows;
-      let html = xs.length ? xs.slice(0, 5).map((r, i) => `<li class="${r.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">${r.name.replace(/[<>&]/g, '')}${r.me ? you : ''}<br>stage ${r.stage}${r.level ? ` · ${r.level}` : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No runs yet.</li>';
-      if (bd.mine && bd.mine.rank > 5) html += `<li class="me"><span class="rk">${bd.mine.rank}</span><span class="rs">${fmt(bd.mine.score)}</span><span class="rm">${(callsign || 'Anonymous').replace(/[<>&]/g, '')}${you}<br>stage ${bd.mine.stage} · of ${bd.players}</span><span class="rv ok">✓</span></li>`;
+      let html = xs.length ? xs.slice(0, 20).map((r, i) => `<li class="${r.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="rs">${fmt(r.score)}</span><span class="rm">${r.name.replace(/[<>&]/g, '')}${r.me ? you : ''}<br>stage ${r.stage}${r.level ? ` · ${r.level}` : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No runs yet.</li>';
+      if (bd.mine && bd.mine.rank > 20) html += `<li class="me"><span class="rk">${bd.mine.rank}</span><span class="rs">${fmt(bd.mine.score)}</span><span class="rm">${(callsign || 'Anonymous').replace(/[<>&]/g, '')}${you}<br>stage ${bd.mine.stage} · of ${bd.players}</span><span class="rv ok">✓</span></li>`;
       return html;
     };
-    const raiders = r.top.length ? r.top.slice(0, 5).map((p, i) => `<li class="${p.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="rs">${fmt(p.damage / 10)}</span><span class="rm">${p.name.replace(/[<>&]/g, '')}${p.me ? '<span class="you">YOU</span>' : ''}<br>${p.runs} run${p.runs > 1 ? 's' : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No raiders yet.</li>';
+    const raiders = r.top.length ? r.top.slice(0, 20).map((p, i) => `<li class="${p.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="rs">${fmt(p.damage / 10)}</span><span class="rm">${p.name.replace(/[<>&]/g, '')}${p.me ? '<span class="you">YOU</span>' : ''}<br>${p.runs} run${p.runs > 1 ? 's' : ''}</span><span class="rv ok">✓</span></li>`).join('') : '<li class="empty">No raiders yet.</li>';
     list.innerHTML = `<li class="sec"><span>OMEGA RAID · ${r.down ? 'DOWN' : `${fmt(Math.max(0, r.poolHp - r.dealt) / 10)} HP LEFT`}</span></li>${raiders}<li class="sec"><span>TODAY'S DAILY OP</span></li>${rows(d)}<li class="sec"><span>SOLO</span></li>${rows(s)}<li class="sec"><span>VS AI</span></li>${rows(a)}`;
   } catch (e) {
     list.innerHTML = `<li class="empty">Couldn't reach the global board (${String(e.message || e).slice(0, 60)}).</li>`;
@@ -1752,6 +1887,7 @@ function rivalEvents() {
     else if (e.type === 'bomber') rvPop('BOMBER', '#ff7a7a');
     else if (e.type === 'hit') { rv.box.classList.remove('hit'); void rv.box.offsetWidth; rv.box.classList.add('hit'); }
     else if (e.type === 'kill') { rvPop(`${e.name} DOWN`, '#3DDC97'); toast(`${rv.name.textContent} destroyed <b>${e.name}</b>`, false, 2400); }
+    else if (e.type === 'left') { rvPop('LEFT', '#8a94a6'); toast(`${rv.name.textContent.replace('● ', '')} left the match`, false, 2600); }
     else if (e.type === 'fell') { rvPop('BASE FELL', '#ff6b6b'); toast(`The rival's base fell at stage ${RIVAL.st.stageNo}. Beat <b>${fmt(RIVAL.st.score)}</b>!`, false, 3200); }
   }
   // lead changes
@@ -1792,7 +1928,7 @@ function drawRival() {
   const base = R.phase === 'night' ? R.night.base : st.base;
   const bw = `${Math.max(0, base / st.baseMax) * 100}%`;
   if (rvLast.bw !== bw) { rvLast.bw = bw; rv.base.style.width = bw; }
-  setTxt(rv.status, 'status', R.phase === 'over' ? 'BASE FELL' : R.phase === 'night' ? `vs ${st.boss.name}` : `${st.moves} moves left`);
+  setTxt(rv.status, 'status', R.left ? 'LEFT' : R.live && R.waitNight ? 'night falls…' : R.phase === 'over' ? 'BASE FELL' : R.phase === 'night' ? `vs ${st.boss.name}` : `${st.moves} moves left`);
   const d = S.score - st.score;
   setTxt(rv.lead, 'lead', d === 0 ? 'TIED' : d > 0 ? `YOU +${fmt(d)}` : `YOU −${fmt(-d)}`);
   rv.lead.className = `rv-lead ${d > 0 ? 'up' : d < 0 ? 'down' : ''}`;
@@ -2175,6 +2311,20 @@ function drawBossBar() {
     ctx.fillRect(x + 1, y + 6, (w - 2) * (b.lag / b.max), 6);
     ctx.fillStyle = b.color;
     ctx.fillRect(x + 1, y + 6, (w - 2) * (b.hp / b.max), 6);
+    if (b.armorMax) { // steel plating over the hull bar, in plates that fall away
+      const af = Math.max(0, b.armor) / b.armorMax, plates = 10, pw = (w - 2) / plates;
+      for (let k = 0; k < plates; k++) {
+        const fill = Math.max(0, Math.min(1, af * plates - k));
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x + 1 + k * pw, y + 13, pw - 1.5, 3);
+        if (fill > 0) { ctx.fillStyle = k % 2 ? '#b9c8d3' : '#d7e3ec'; ctx.fillRect(x + 1 + k * pw, y + 13, (pw - 1.5) * fill, 3); }
+      }
+      ctx.textAlign = 'right';
+      ctx.font = '800 11px "JetBrains Mono", monospace';
+      const hpW = ctx.measureText(`${Math.ceil(b.hp / 10)} / ${Math.ceil(b.max / 10)}`).width;
+      ctx.font = '800 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = b.armor > 0 ? '#d7e3ec' : '#FFD23F';
+      ctx.fillText(b.armor > 0 ? `⛨ ${Math.ceil(b.armor / 10)}` : 'EXPOSED', x + w - hpW - 8, y);
+    }
   }
   // live readout of the boss's brain chip (a TapeOut circuit)
   const br = S.forge ? { circuit: S.forge.circuit } : E.brainOf(b.type), c = S.chip, fresh = c && S.time - c.t < 2.2 && S.phase === 'night';
@@ -2357,6 +2507,7 @@ function bossShape2(type, t, white, col, recoil, steel, dark, hi, acc) {
     if (!white) { ctx.globalCompositeOperation = 'lighter'; const keep = ctx.globalAlpha; ctx.globalAlpha = keep * pulse; ctx.drawImage(SPR.red, -30, -38, 60, 60); ctx.globalAlpha = keep; ctx.globalCompositeOperation = 'source-over'; }
     return { ex: 0, ey: -8, er: 11 };
   }
+  if (type === 9) return juggernautShape(t, white, col, recoil, steel, dark, hi, acc);
   // WARDEN: orbital platform with turning solar wings and a lance emitter charging underneath
   const tilt = Math.cos(t * 0.8);
   for (const sd of [-1, 1]) {
@@ -2375,6 +2526,50 @@ function bossShape2(type, t, white, col, recoil, steel, dark, hi, acc) {
   ctx.fillStyle = white ? '#fff' : rgba(col, 0.4 + 0.6 * Math.abs(Math.sin(t * 3)));
   ctx.beginPath(); ctx.arc(0, 48 - recoil * 6, 5, 0, Math.PI * 2); ctx.fill();
   return { ex: 0, ey: 2, er: 9 };
+}
+
+// JUGGERNAUT: a heavy armoured tanker. Twin tread units, slab armour bolted over the hull (plates fall away
+// as its armour is worn down, showing the glowing hull), a twin-barrel turret and a fuel tank on the back.
+function juggernautShape(t, white, col, recoil, steel, dark, hi, acc) {
+  const b = S.boss, af = b && b.armorMax ? Math.max(0, b.armor) / b.armorMax : 1;
+  const plate = white ? '#fff' : '#7d8b96', plateHi = white ? '#fff' : '#b9c8d3', rivet = white ? '#fff' : '#3a434b';
+  // treads
+  for (const sd of [-1, 1]) {
+    ctx.fillStyle = dark; rr(ctx, sd > 0 ? 14 : -112, 26, 98, 36, 17); ctx.fill();
+    for (let j = 0; j < 4; j++) {
+      const wx = (sd > 0 ? 32 : -94) + j * 21;
+      ctx.fillStyle = steel; ctx.beginPath(); ctx.arc(wx, 44, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(wx, 44); ctx.rotate(t * 3); ctx.fillStyle = dark; ctx.fillRect(-1.4, -7, 2.8, 14); ctx.restore();
+    }
+    ctx.fillStyle = hi;
+    const x0 = sd > 0 ? 18 : -108;
+    for (let x = x0 + ((t * 30) % 12); x < x0 + 90; x += 12) { ctx.fillRect(x, 25, 5, 3); ctx.fillRect(x, 59, 5, 3); }
+  }
+  // hull (glows through where plates are gone)
+  ctx.fillStyle = white ? '#fff' : '#22282e'; ctx.beginPath(); ctx.moveTo(-116, 28); ctx.lineTo(-96, -10); ctx.lineTo(96, -10); ctx.lineTo(116, 28); ctx.closePath(); ctx.fill();
+  if (!white && af < 1) { ctx.fillStyle = rgba(col, 0.25 + 0.2 * Math.sin(t * 6)); ctx.fillRect(-90, -6, 180, 30); }
+  // armour slabs: 8 plates; each one drops off as the armour falls past it
+  const shown = Math.ceil(af * 8 - 1e-6);
+  const order = [3, 4, 2, 5, 1, 6, 0, 7]; // centre plates go last
+  for (let k = 0; k < 8; k++) {
+    if (order.indexOf(k) >= shown) continue;
+    const px = -104 + k * 26, top = k === 0 || k === 7 ? 6 : -8;
+    ctx.fillStyle = plate; ctx.beginPath(); ctx.moveTo(px + 1, 28); ctx.lineTo(px + 2, top); ctx.lineTo(px + 24, top); ctx.lineTo(px + 25, 28); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = plateHi; ctx.fillRect(px + 3, top + 1, 20, 3);
+    ctx.fillStyle = rivet; for (const ry of [top + 8, 22]) { ctx.beginPath(); ctx.arc(px + 7, ry, 1.6, 0, Math.PI * 2); ctx.arc(px + 19, ry, 1.6, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.fillStyle = acc; ctx.fillRect(-80, 24, 160, 4); // hazard stripe
+  // fuel tank (the tanker) on the back deck
+  ctx.fillStyle = white ? '#fff' : '#3b4a3f'; rr(ctx, -70, -30, 140, 22, 11); ctx.fill();
+  ctx.strokeStyle = white ? '#fff' : '#26302a'; ctx.lineWidth = 2;
+  for (const bx of [-40, 0, 40]) { ctx.beginPath(); ctx.moveTo(bx, -30); ctx.lineTo(bx, -8); ctx.stroke(); }
+  // turret with twin barrels, sweeping slowly
+  ctx.fillStyle = af > 0 ? plate : steel; ctx.beginPath(); ctx.ellipse(0, -24, 38, 20, 0, Math.PI, 0); ctx.fill(); ctx.fillRect(-38, -25, 76, 10);
+  ctx.save(); ctx.translate(0, -16); ctx.rotate(Math.sin(t * 0.5) * 0.35);
+  ctx.fillStyle = dark; ctx.fillRect(-13, 0, 9, 80 - recoil * 18); ctx.fillRect(4, 0, 9, 80 - recoil * 18);
+  ctx.fillStyle = acc; ctx.fillRect(-15, 72 - recoil * 18, 13, 8); ctx.fillRect(2, 72 - recoil * 18, 13, 8);
+  ctx.restore();
+  return { ex: 0, ey: -30, er: 8 };
 }
 
 const FLYERS = new Set([1, 2, 3, 5, 7, 8]);
@@ -2736,7 +2931,7 @@ function frame(now) {
   if (paused) { render(); return; }
   if (S.phase !== 'title') update(real * S.slow);
   else S.time += real;
-  if (RIVAL && (S.phase === 'day' || S.phase === 'night')) { RIVAL.update(real); rivalEvents(); }
+  if (RIVAL && (S.phase === 'day' || S.phase === 'night' || (S.phase === 'over' && RIVAL.live && !RIVAL.finished))) { RIVAL.update(real); if (S.phase === 'over') RIVAL.ev.length = 0; else rivalEvents(); }
   render();
   if (RIVAL) drawRival();
 }
@@ -2761,6 +2956,14 @@ if (forgeLink && API.enabled()) {
     $('fightLinked').addEventListener('click', () => fightForge(m.design, m.id, m.author));
   }).catch(() => {});
 }
+function readLiveLink() {
+  const m = location.hash.match(/(?:^#|&)live=([A-Za-z]{4})/);
+  if (!m || S.phase === 'day' || S.phase === 'night' || LOBBY) return;
+  pick.kind = 'live'; $('lcCode').value = m[1].toUpperCase(); syncPick();
+  setTimeout(() => toast(`Invited to room <b>${m[1].toUpperCase()}</b>. Tap Join to fight live.`, false, 4000), 700);
+}
+readLiveLink();
+window.addEventListener('hashchange', readLiveLink);
 const shortDuel = location.hash.match(/(?:^#|&)d=([\w-]{4,12})/);
 if (shortDuel && API.enabled()) { // short link: fetch it, then check it ourselves by replaying every move
   API.getDuel(shortDuel[1]).then((d) => {

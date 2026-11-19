@@ -19,7 +19,7 @@ html, body {
 }
 body { display: flex; align-items: center; justify-content: center; }
 
-#stage { position: relative; overflow: hidden; contain: strict; }
+#stage { position: relative; overflow: hidden; overflow: clip; contain: strict; } /* clip: never scrolls, even when the browser scrolls a focused or tall child into view */
 #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #game { touch-action: none; }
 .bg { transition: opacity 1.2s ease; }
@@ -425,3 +425,31 @@ h1 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 800; font
 #pauseBtn { display: none; }
 #stage.playing #pauseBtn { display: grid; }
 #hud { gap: calc(var(--u) * 8); }
+/* Leaderboard: title, tabs and Back stay put; the list scrolls on its own (long boards on phones) */
+#ranks.screen { justify-content: flex-start; padding-top: max(calc(var(--u) * 20), env(safe-area-inset-top)); padding-bottom: max(calc(var(--u) * 16), env(safe-area-inset-bottom)); }
+#ranks .ov-title, #ranks .seg, #ranks .callsign, #ranks .ranknote, #ranks #ranksBack { flex-shrink: 0; }
+#ranks .ranklist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding-right: 2px; }
+#ranks .ranknote { margin: calc(var(--u) * 8) 0; }
+/* Live 1v1 */
+#modeSeg { gap: calc(var(--u) * 3); }
+#modeSeg button { font-size: calc(var(--u) * 12.5); white-space: nowrap; padding: 0 calc(var(--u) * 2); }
+#modeSeg .livebtn { flex: 1.35; color: #FFD23F; }
+#modeSeg .livebtn::before { content: ""; display: inline-block; width: calc(var(--u) * 6); height: calc(var(--u) * 6); margin-right: calc(var(--u) * 4); border-radius: 50%; background: #ff4a4a; vertical-align: middle; box-shadow: 0 0 6px #ff4a4a; animation: livePulse 1.4s ease-in-out infinite; }
+@keyframes livePulse { 50% { opacity: .35; } }
+.livecard { display: none; margin-top: calc(var(--u) * 10); padding: calc(var(--u) * 10) calc(var(--u) * 12); border-radius: calc(var(--u) * 14); background: rgba(255, 210, 63, .07); border: 1px solid rgba(255, 210, 63, .4); text-align: left; }
+.livecard.on { display: block; }
+.lc-join { display: flex; align-items: center; gap: calc(var(--u) * 8); font-size: calc(var(--u) * 13); color: var(--muted); }
+.lc-join span { flex: 1; }
+.lc-join input { width: calc(var(--u) * 84); height: calc(var(--u) * 36); border-radius: calc(var(--u) * 10); border: 1px solid var(--line); background: rgba(0,0,0,.35); color: var(--text); text-align: center; font: 800 calc(var(--u) * 17) "JetBrains Mono", monospace; letter-spacing: .2em; text-transform: uppercase; user-select: text; -webkit-user-select: text; }
+.lc-btn { height: calc(var(--u) * 36); padding: 0 calc(var(--u) * 14); border-radius: calc(var(--u) * 10); background: rgba(255,255,255,.08); border: 1px solid var(--line); font-weight: 700; font-size: calc(var(--u) * 13.5); }
+.lc-btn.hi { background: #FFD23F; color: #1a1200; border-color: #FFD23F; }
+.lc-room { display: none; }
+.livecard.wait .lc-room { display: block; }
+.livecard.wait .lc-join { display: none; }
+.lc-code { display: flex; align-items: baseline; justify-content: space-between; font-family: "JetBrains Mono", monospace; }
+.lc-code span { font-size: calc(var(--u) * 11); letter-spacing: .14em; color: var(--muted); }
+.lc-code b { font-size: calc(var(--u) * 30); letter-spacing: .28em; color: #FFD23F; }
+.lc-st { margin: calc(var(--u) * 4) 0 calc(var(--u) * 10); font-size: calc(var(--u) * 13); color: var(--text); }
+.lc-st.go { color: #3DDC97; font-weight: 800; font-size: calc(var(--u) * 16); }
+.lc-acts { display: flex; gap: calc(var(--u) * 8); }
+.lc-acts .lc-btn { flex: 1; }

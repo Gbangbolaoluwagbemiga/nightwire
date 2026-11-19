@@ -11,7 +11,7 @@ interface ITransistorsOkb {
 }
 interface IHasTransistors { function transistors() external view returns (address); }
 
-/// Low-cost path: tape out the 9 brain chips on an existing TapeOut processor whose transistors are
+/// Low-cost path: tape out the 10 brain chips on an existing TapeOut processor whose transistors are
 /// priced in OKB (the FAQ allows using existing processors). No BEM, no processor of our own.
 /// PROCESSOR=<address> forge script script/DeployBrains.s.sol --rpc-url … --broadcast
 contract DeployBrains is Script {

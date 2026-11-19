@@ -26,15 +26,17 @@ contract NightwireEngine {
     uint32 constant BOSS_FLIGHT = 700;
     uint32 constant MEDIC_PCT = 60;
     uint32 constant MAX_BAZOOKA = 9;
+    uint32 constant ARMOR_PCT = 50; // JUGGERNAUT's plating, as a share of its health
+    uint8 constant JUGGERNAUT = 9; // brain/type index (8 is OMEGA)
 
     ICircuits public immutable armory;
-    uint256[9] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden, omega (raid)
-    uint8[9] internal brainStateBits;
+    uint256[10] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden, omega (raid), juggernaut
+    uint8[10] internal brainStateBits;
 
-    constructor(ICircuits armory_, uint256[9] memory ids) {
+    constructor(ICircuits armory_, uint256[10] memory ids) {
         armory = armory_;
         brainIds = ids;
-        for (uint256 i; i < 9; i++) {
+        for (uint256 i; i < 10; i++) {
             (uint32 nIn, uint32 nOut, uint32 nState,) = armory_.circuitInfo(ids[i]);
             require(nIn == 7 && nOut == 2 && nState <= 8, "brain pins");
             brainStateBits[i] = uint8(nState);
@@ -61,6 +63,7 @@ contract NightwireEngine {
         // boss
         uint32 hp;
         uint32 maxHp;
+        uint32 armor; // JUGGERNAUT's plating (tenths), worn down before the hull
         uint32 rage;
         bool present;
         uint8 btype;
@@ -127,7 +130,9 @@ contract NightwireEngine {
         g.maxHp = uint32(hp);
         g.rage = 0;
         g.present = false;
-        g.btype = uint8((g.stageNo - 1) % 8);
+        uint8 idx = uint8((g.stageNo - 1) % 9); // nine war machines rotate; the ninth is JUGGERNAUT
+        g.btype = idx == 8 ? JUGGERNAUT : idx;
+        g.armor = idx == 8 && g.customBrain == 0 ? uint32(_rdiv(hp * ARMOR_PCT, 100)) : 0; // forged machines carry no plating
         g.brain = 0;
     }
 
@@ -703,6 +708,11 @@ contract NightwireEngine {
         }
     }
 
+    /// armour bite (%) per weapon: MG, mortar, stinger, airstrike bombs, bazooka
+    function _bite(uint256 w) internal pure returns (uint256) {
+        return w == 0 ? 40 : w == 1 ? 150 : w == 2 ? 100 : w == 3 ? 150 : 250;
+    }
+
     function _nextShot(uint256[3] memory left, uint256 from) internal pure returns (uint256) {
         for (uint256 i; i < 3; i++) {
             uint256 w = (from + i) % 3;
@@ -761,12 +771,12 @@ contract NightwireEngine {
                 d = n * _rdiv(dmg * 3, n);
                 tt = t + 750;
             }
-            _push(h, tt, 2, d | (uint256(0xff) << 32)); // sid 0xff = not a bomb
+            _push(h, tt, 2, d | (uint256(0xff) << 32) | (kind << 40)); // sid 0xff = not a bomb; bits 40+: weapon
             if (tt > lastHit) lastHit = tt;
         }
         for (uint256 j; j < nt.bz; j++) { // bazookas: one heavy hit each
             uint256 tb = NIGHT_START + 200 + j * 550 + 600;
-            _push(h, tb, 2, nt.bzDmg | (uint256(0xff) << 32));
+            _push(h, tb, 2, nt.bzDmg | (uint256(0xff) << 32) | (uint256(4) << 40));
             if (tb > lastHit) lastHit = tb;
         }
         // onslaught: after its regular attacks, a war machine still standing unleashes its signature weapon
@@ -779,7 +789,7 @@ contract NightwireEngine {
         for (uint256 s; s < strikes.length; s++) {
             uint256 ts = strikes[s];
             _push(h, ts, 6, s);
-            _push(h, ts + 530, 2, (3 * bombDmg) | (s << 32)); // all three bombs, when the first lands
+            _push(h, ts + 530, 2, (3 * bombDmg) | (s << 32) | (uint256(3) << 40)); // all three bombs, when the first lands
         }
 
         uint8[] memory act = new uint8[](nBoss);
@@ -800,9 +810,23 @@ contract NightwireEngine {
                 uint32 o;
                 (g.crs, o) = _next(g.crs);
                 uint256 d = (val & 0xffffffff) * (o < 429496730 ? 2 : 1);
+                uint256 ad;
+                if (g.armor > 0) { // armour first, scaled by how hard the weapon bites; a breaking hit spills into the hull
+                    uint256 bite = _bite(val >> 40);
+                    uint256 eff = _rdiv(d * bite, 100);
+                    if (eff <= g.armor) {
+                        g.armor -= uint32(eff);
+                        ad = eff;
+                        d = 0;
+                    } else {
+                        ad = g.armor;
+                        d = _rdiv((eff - g.armor) * 100, bite);
+                        g.armor = 0;
+                    }
+                }
                 hp = d >= hp ? 0 : hp - uint32(d);
-                g.score += _rdiv(d, 5);
-                g.damage += d;
+                g.score += _rdiv(ad + d, 5);
+                g.damage += ad + d;
                 if (hp == 0) nt.killT = key >> 40;
             } else if (typ == 3) {
                 if ((hp == 0)) continue;

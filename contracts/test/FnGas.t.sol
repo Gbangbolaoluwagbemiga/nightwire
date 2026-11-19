@@ -4,7 +4,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {NightwireEngine} from "../src/NightwireEngine.sol";
 import {ICircuits} from "../src/ITapeOut.sol";
 contract Harness is NightwireEngine {
-    constructor(ICircuits a) NightwireEngine(a, [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9]) {}
+    constructor(ICircuits a) NightwireEngine(a, [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9, 10]) {}
     function probe(uint32 seed) external view returns (uint256[8] memory gs) {
         uint256 g0 = gasleft();
         G memory g = _newRun(seed, false);

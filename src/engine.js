@@ -19,7 +19,7 @@ import { load as loadChip, beat as chipBeat } from './tap02.js';
 // Each war machine's combat brain is a TapeOut NAND/LATCH chip (src/chips.js, taped out on X Layer).
 // Before every attack the boss steps its chip once; the 2 output bits pick the action.
 export const ACTIONS = ['BARRAGE', 'FOCUS FIRE', 'EMP', 'FIELD REPAIR'];
-const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden', 'omega'];
+const BRAIN_KEYS = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden', 'omega', 'juggernaut'];
 const BRAINS = BRAIN_KEYS.map((k) => loadChip(CHIPS[k].netlist, CHIPS[k].nIn, CHIPS[k].nOut));
 export const brainOf = (type) => ({ key: BRAIN_KEYS[type], chip: CHIPS[BRAIN_KEYS[type]], circuit: BRAINS[type] });
 // chip inputs: boss HP quarter (2 bits), base HP quarter (2), shield up (1), rage (2, capped at 3)
@@ -30,7 +30,7 @@ export function brainInputs(hp, max, base, baseMax, shield, rage) {
 // tier thresholds: shots for guns, points for shield/repair
 export const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 3 ? (v >= 40 ? 2 : v >= 20 ? 1 : 0) : (v >= 16 ? 2 : v >= 8 ? 1 : 0));
 // each war machine's signature weapon: it unleashes this once your arsenal is spent and it is still standing
-export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES', 'SIEGE SHELLS', 'CARPET BOMBING', 'PLASMA MORTAR', 'ORBITAL LANCE', 'DOOMSDAY ARRAY'];
+export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES', 'SIEGE SHELLS', 'CARPET BOMBING', 'PLASMA MORTAR', 'ORBITAL LANCE', 'DOOMSDAY ARRAY', 'MAIN GUN'];
 export const ONSLAUGHT_HITS = 5;
 export const BOSSES = [
   { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0 },
@@ -41,7 +41,12 @@ export const BOSSES = [
   { name: 'SPECTRE', role: 'stealth bomber', color: '#7CF2E2', type: 5 },
   { name: 'TITAN', role: 'spider walker', color: '#FF8F3D', type: 6 },
   { name: 'WARDEN', role: 'orbital platform', color: '#F2F2FF', type: 7 },
+  { name: 'JUGGERNAUT', role: 'armoured tanker', color: '#9FB4C2', type: 9, armored: true }, // type 8 is OMEGA (raid)
 ];
+// JUGGERNAUT's steel plating: half its health again, worn down before the hull takes a scratch.
+// How hard each weapon bites into armour (%): bullets ping off, shells and rockets crack it open.
+export const ARMOR_PCT = 50;
+export const ARMOR_BITE = { 0: 40, 1: 150, 2: 100, bomb: 150, bz: 250 };
 
 // ---------------------------------------------------------------- seeded randomness (mulberry32, state is one int)
 export function rng(seed) {
@@ -87,7 +92,8 @@ export function makeBoss(stageNo, hard = false, forge = null) {
   let hp = 1300; // tenths; x1.60 per stage
   for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 160, 100);
   if (hard && stageNo >= VETERAN.from) hp = rdiv(hp * VETERAN.hpPct, 100);
-  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, age: 0, brain: new Array((forge ? forge.circuit : BRAINS[d.type]).nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
+  const armor = !forge && d.armored ? rdiv(hp * ARMOR_PCT, 100) : 0;
+  return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, armor, armorMax: armor, age: 0, brain: new Array((forge ? forge.circuit : BRAINS[d.type]).nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
 // ---------------------------------------------------------------- World Boss raid
@@ -97,7 +103,7 @@ export const RAID = { hp: 1_000_000_000, stage: 1, type: 8 };
 export const weekNumber = (day) => Math.floor(day / 7);
 export const raidSeed = (week) => (Number((BigInt(week) * 2246822519n + 0x0bade5n) & 0xffffffffn)) >>> 0;
 export function makeRaidBoss() {
-  return { name: 'OMEGA', role: 'world boss', color: '#FF2E4D', type: RAID.type, hp: RAID.hp, max: RAID.hp, lag: RAID.hp, age: 0, brain: new Array(BRAINS[RAID.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
+  return { name: 'OMEGA', role: 'world boss', color: '#FF2E4D', type: RAID.type, hp: RAID.hp, max: RAID.hp, lag: RAID.hp, armor: 0, armorMax: 0, age: 0, brain: new Array(BRAINS[RAID.type].nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
 }
 
 export function newRun(seed, mk = plain, opts = {}) {
@@ -385,7 +391,7 @@ export function planNight(st) {
   events.sort((x, y) => x.t - y.t);
   events.forEach((e, i) => { e.id = i; });
   return {
-    events, repair, bz, bzDmg, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, score: st.score, strikes: st.strikes,
+    events, repair, bz, bzDmg, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, armor: st.boss.armor || 0, score: st.score, strikes: st.strikes,
     max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg, circuit: st.forge ? st.forge.circuit : null,
   };
 }
@@ -446,7 +452,7 @@ export function simNight(plan, strikes, crState) {
   });
   items.sort((x, y) => x.t - y.t || x.q - y.q);
 
-  let hp = plan.hp, base = plan.base, shield = plan.shield, score = plan.score, left = plan.strikes, dead = false, over = false, killT = -1;
+  let armor = plan.armor || 0, hp = plan.hp, base = plan.base, shield = plan.shield, score = plan.score, left = plan.strikes, dead = false, over = false, killT = -1;
   let brain = plan.brain.slice(), damage = 0, pool = plan.repair;
   const patchUp = (rest) => { const p = Math.min(pool, rdiv(rest * MEDIC_PCT, 100)); pool -= p; return p; };
   const circuit = plan.circuit || BRAINS[plan.type];
@@ -463,11 +469,15 @@ export function simNight(plan, strikes, crState) {
     } else if (it.type === 'hit') {
       if (dead || (it.sid !== undefined && !live.has(it.sid))) continue;
       const crit = CR.next() < 429496730; // 10%
-      const d = it.dmg * (crit ? 2 : 1);
+      let d = it.dmg * (crit ? 2 : 1), ad = 0;
+      if (armor > 0) { // armour first, scaled by how hard this weapon bites; a breaking hit spills into the hull
+        const bite = ARMOR_BITE[it.src], eff = rdiv(d * bite, 100);
+        if (eff <= armor) { armor -= eff; ad = eff; d = 0; } else { ad = armor; d = rdiv((eff - armor) * 100, bite); armor = 0; }
+      }
       hp = Math.max(0, hp - d);
-      damage += d;
-      score += rdiv(d, 5); // 2 points per HP
-      out.push({ ...it, d, crit, hp, score });
+      damage += ad + d;
+      score += rdiv(ad + d, 5); // 2 points per HP (armour counts)
+      out.push({ ...it, d, ad, armor, crit, hp, score });
       if (hp <= 0) { dead = true; killT = it.t; out.push({ t: it.t, type: 'kill' }); }
     } else if (it.type === 'bfire') { // the boss steps its brain chip to choose this attack
       if (dead) continue;
@@ -525,13 +535,14 @@ export function simNight(plan, strikes, crState) {
   }
   return {
     entries: out, outcome: over ? 'over' : dead ? 'kill' : 'hold', killT, refund, bzBack, damage,
-    lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, base, shield, score, strikes: left, crEnd: CR.s, brain,
+    lastT: out.length ? out[out.length - 1].t : NIGHT_START, hp, armor, base, shield, score, strikes: left, crEnd: CR.s, brain,
   };
 }
 
 export function finishNight(run, script) {
   const st = run.st;
   st.boss.hp = script.hp;
+  st.boss.armor = script.armor;
   st.base = script.base;
   st.shield = script.shield;
   st.score = script.score;

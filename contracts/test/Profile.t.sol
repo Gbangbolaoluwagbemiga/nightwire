@@ -4,7 +4,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {NightwireEngine} from "../src/NightwireEngine.sol";
 import {ICircuits} from "../src/ITapeOut.sol";
 contract Prof is NightwireEngine {
-    constructor(ICircuits a) NightwireEngine(a, [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9]) {}
+    constructor(ICircuits a) NightwireEngine(a, [uint256(1), 2, 3, 4, 5, 6, 7, 8, 9, 10]) {}
     function profile(uint32 seed, bytes calldata actions) external view returns (uint256 setup, uint256 moves, uint256 nMoves, uint256 nights, uint256 nNights, uint256 maxMove, uint256 shuffles) {
         uint256 g0 = gasleft();
         G memory g = _newRun(seed, false);

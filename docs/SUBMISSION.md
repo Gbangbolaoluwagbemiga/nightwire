@@ -10,9 +10,9 @@
 
 By day you swap munitions on an 8×8 board: bullets, shells, missiles, armour and wrenches. Matches arm real weapon tiers (M2 MG → Gatling → CIWS, Mortar → Howitzer → MLRS, Stinger → Javelin → Patriot), raise an Iron Dome shield and repair the base. Match 4 for a jet strafe, an L or T for a grenade, 5 for an airstrike beacon plus a bazooka round (heavy rockets that open the night); long chains earn airstrikes. When the moves run out, the war machine attacks and your arsenal fires back; the Iron Dome takes hits first, then medics on standby patch up most of each hit while their repair pool lasts. If it survives, it holds the sky and shells you every few moves until you finish it.
 
-Eight war machines (IRONCLAW, STORMWING, DREADNOUGHT, HIVE CARRIER, BEHEMOTH, SPECTRE, TITAN, WARDEN), each with its own brain chip and signature weapon.
+Nine war machines (IRONCLAW, STORMWING, DREADNOUGHT, HIVE CARRIER, BEHEMOTH, SPECTRE, TITAN, WARDEN, JUGGERNAUT), each with its own brain chip and signature weapon. JUGGERNAUT is a fully armoured tanker: steel plating worth half its health soaks every hit first, and each weapon bites into armour differently (machine guns 40%, stingers 100%, mortars and airstrikes 150%, bazookas 250%), so the board you build matters.
 
-Modes: Solo, **World Boss raid** (OMEGA: everyone that week chips at one shared health pool), **VS AI** (Easy / Normal / Hard, live on the same battlefield beside you), **Daily Op** (one battlefield for everyone each UTC day), and **Duels** (a friend's exact run plays beside you as a ghost).
+Modes: Solo, **World Boss raid** (OMEGA: everyone that week chips at one shared health pool), **1v1 Live** (room code or invite link; two players fight the same battlefield at the same moment, each one's moves relayed and replayed on the shared engine beside the other), **VS AI** (Easy / Normal / Hard, live on the same battlefield beside you), **Daily Op** (one battlefield for everyone each UTC day), and **Duels** (a friend's exact run plays beside you as a ghost).
 
 ## How it uses TapeOut and X Layer
 

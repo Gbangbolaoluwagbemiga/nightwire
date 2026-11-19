@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Puts Nightwire on X Layer mainnet the low-cost way (about 0.015 OKB, no BEM):
-#   1. tape out the 9 brain chips on an existing TapeOut processor with free transistors (FAQ: allowed)
+#   1. tape out the 10 brain chips on an existing TapeOut processor with free transistors (FAQ: allowed)
 #   2. deploy the engine, ladder, raid and shop contracts (gas only)
 #   3. optional: host the game on DeWEB (0.08 OKB container) - the Vercel link already satisfies the rules
 # Needs foundry + node and a keystore account: cast wallet import nightwire-deployer --interactive
@@ -16,7 +16,7 @@ echo "deployer $ADDR on chain $(cast chain-id --rpc-url "$RPC"), balance $(cast 
 node tools/chips.mjs >/dev/null
 (cd contracts && forge build >/dev/null) && echo "contracts build"
 
-ask "1/2 Tape out the 9 war-machine brain chips on processor $PROCESSOR (about 0.013 OKB)?"
+ask "1/2 Tape out the 10 war-machine brain chips on processor $PROCESSOR (about 0.013 OKB)?"
 OUT=$(cd contracts && PROCESSOR=$PROCESSOR forge script script/DeployBrains.s.sol --rpc-url "$RPC" --account "$ACCOUNT" --broadcast --slow 2>&1)
 FIRST=$(echo "$OUT" | awk '/^  brain 0 circuit id/{print $5}')
 echo "$OUT" | grep -E "^  (brain|OKB)"

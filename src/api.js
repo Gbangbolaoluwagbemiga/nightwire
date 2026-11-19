@@ -33,3 +33,8 @@ export const publishMachine = (design, author, threat) => req('/forge', { design
 export const listMachines = () => req('/forge');
 export const getMachine = (id) => req(`/forge/${encodeURIComponent(id)}?pid=${playerId}`);
 export const submitForgeRun = (id, actions, name) => req(`/forge/${encodeURIComponent(id)}/runs`, { actions, name, pid: playerId });
+// live 1v1 rooms
+export const createLive = (name) => req('/live', { name });
+export const joinLive = (code, name) => req(`/live/${code}/join`, { name });
+export const liveAct = (code, tok, from, acts) => req(`/live/${code}/act?tok=${encodeURIComponent(tok)}`, { from, acts });
+export const liveEvents = (code, tok, from) => new EventSource(`${base}/live/${code}/events?tok=${encodeURIComponent(tok)}&from=${from}`);

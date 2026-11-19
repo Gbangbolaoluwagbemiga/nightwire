@@ -10,14 +10,14 @@ import {ICircuits} from "../src/ITapeOut.sol";
 
 interface IHasTransistors { function transistors() external view returns (address); }
 
-/// Deploys the on-chain engine (wired to the 9 brain chips), the ladder, the raid and the shop.
+/// Deploys the on-chain engine (wired to the 10 brain chips), the ladder, the raid and the shop.
 /// BRAINS_PROCESSOR=<processor> BRAIN_FIRST_ID=<id of brain #0> forge script script/DeployNightwire.s.sol --rpc-url … --broadcast
 contract DeployNightwire is Script {
     function run() external {
         address cpu = vm.envAddress("BRAINS_PROCESSOR");
         uint256 first = vm.envUint("BRAIN_FIRST_ID");
-        uint256[9] memory ids;
-        for (uint256 i; i < 9; i++) ids[i] = first + i;
+        uint256[10] memory ids;
+        for (uint256 i; i < 10; i++) ids[i] = first + i;
         vm.startBroadcast();
         NightwireEngine engine = new NightwireEngine(ICircuits(cpu), ids);
         NightwireLadder ladder = new NightwireLadder(engine);

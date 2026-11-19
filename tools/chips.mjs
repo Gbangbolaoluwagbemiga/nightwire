@@ -80,6 +80,17 @@ export const DESIGNS = {
     const rep = B.and(B.not(q.q), crit);
     return [B.or(q.q, rep), rep];
   }),
+  // JUGGERNAUT: armoured tanker. Never repairs (its armour does that job). A three-beat main gun:
+  // the third shot EMPs a raised dome; with the dome down it focus-fires on alternate shots.
+  juggernaut: brain((B, i) => {
+    const c0 = B.latch(), c1 = B.latch();
+    const isTwo = B.and(c1.q, B.not(c0.q));
+    c0.set(B.and(B.not(c0.q), B.not(isTwo)));
+    c1.set(B.and(c0.q, B.not(c1.q)));
+    const emp = B.and(isTwo, i.shield);
+    const focus = B.and(B.not(i.shield), B.or(c0.q, isTwo));
+    return [focus, emp];
+  }),
   // OMEGA (world boss): a four-beat cycle. Barrage, focus, EMP if a shield is up, then focus once enraged.
   omega: brain((B, i) => {
     const c0 = B.latch(), c1 = B.latch();
@@ -103,6 +114,7 @@ export const SPEC = {
   titan: (s, x) => { const c = s.c || 0; return { a: c === 2 || x.bq === 0 ? 1 : 0, s: { c: (c + 1) % 3 } }; },
   omega: (s, x) => { const c = s.c || 0; return { a: c === 1 ? 1 : c === 2 ? (x.shield ? 2 : 0) : c === 3 ? (x.rage >= 1 ? 1 : 0) : 0, s: { c: (c + 1) % 4 } }; },
   warden: (s, x) => { const q = s.q || 0; return { a: q ? 1 : x.bq === 0 ? 3 : 0, s: { q: 1 - q } }; },
+  juggernaut: (s, x) => { const c = s.c || 0; return { a: c === 2 && x.shield ? 2 : !x.shield && c !== 0 ? 1 : 0, s: { c: (c + 1) % 3 } }; },
 };
 
 if (process.argv[1] && process.argv[1].endsWith('chips.mjs')) {
@@ -117,6 +129,6 @@ if (process.argv[1] && process.argv[1].endsWith('chips.mjs')) {
 export const CHIPS = ${JSON.stringify(out, null, 2)};
 export const ONCHAIN = { chainId: 196, processor: null, first: null };
 `);
-  const order = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden', 'omega'];
+  const order = ['ironclaw', 'stormwing', 'dreadnought', 'hive', 'behemoth', 'spectre', 'titan', 'warden', 'omega', 'juggernaut'];
   fs.writeFileSync(new URL('../contracts/chips.json', import.meta.url), JSON.stringify({ netlists: order.map((k) => out[k].netlist), names: order, nand: order.map((k) => out[k].nand), latch: order.map((k) => out[k].latch) }, null, 2));
 }

@@ -8,9 +8,9 @@ import {ICircuits} from "../src/ITapeOut.sol";
 /// Differential test: every game played by the JS engine (tools/fixtures.mjs) must replay on chain to the
 /// identical score. Runs against a fork that has the Armory processor (set ARMORY, default: local rehearsal).
 contract EngineDiffTest is Test {
-    function _ids() internal view returns (uint256[9] memory ids) {
+    function _ids() internal view returns (uint256[10] memory ids) {
         uint256 f = vm.envOr("BRAIN_FIRST_ID", uint256(1));
-        for (uint256 i; i < 9; i++) ids[i] = f + i;
+        for (uint256 i; i < 10; i++) ids[i] = f + i;
     }
 
     NightwireEngine eng;

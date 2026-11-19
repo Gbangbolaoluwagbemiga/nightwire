@@ -27,10 +27,10 @@ contract ShopTest is Test {
     }
 
     /// the 9 built-in brains, taped out on the same processor by script/DeployBrains.s.sol (ids from the env)
-    function brainIds() internal view returns (uint256[9] memory ids) {
+    function brainIds() internal view returns (uint256[10] memory ids) {
         uint256 first = vm.envOr("BRAIN_FIRST_ID", uint256(0));
         require(first != 0, "set BRAIN_FIRST_ID to the first brain circuit id");
-        for (uint256 i; i < 9; i++) ids[i] = first + i;
+        for (uint256 i; i < 10; i++) ids[i] = first + i;
     }
 
     function test_cosmeticsOneTapAndOwned() public {

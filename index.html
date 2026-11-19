@@ -69,9 +69,13 @@
       <button class="howbtn" id="howBtn"><b>How to play</b><span>It's a war game, not a puzzle game. 60 seconds.</span></button>
       <div class="picker">
         <div class="duelcard" id="duelCard"><b>Duel:</b> a friend scored <b id="duelScore">0</b> on this exact battlefield. Beat it.</div>
-        <div class="seg" id="modeSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="daily">Daily Op</button><button data-m="raid">Raid</button></div>
+        <div class="seg" id="modeSeg"><button data-m="solo">Solo</button><button data-m="ai">VS AI</button><button data-m="live" class="livebtn">1v1 Live</button><button data-m="daily">Daily</button><button data-m="raid">Raid</button></div>
         <div class="seg lvls" id="lvlSeg"><button data-l="easy">Easy</button><button data-l="normal">Normal</button><button data-l="hard">Hard</button></div>
         <div class="raidcard" id="raidCard"><div class="rc-top"><b>OMEGA</b><span id="rcLeft">…</span></div><div class="rc-bar"><i id="rcFill"></i></div><div class="rc-sub" id="rcSub">World boss · everyone this week shares one health pool</div></div>
+        <div class="livecard" id="liveCard">
+          <div class="lc-join" id="lcJoin"><span>Got a code?</span><input id="lcCode" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text"><button class="lc-btn" id="lcJoinBtn">Join</button></div>
+          <div class="lc-room" id="lcRoom"><div class="lc-code"><span>ROOM</span><b id="lcRoomCode">----</b></div><div class="lc-st" id="lcSt">Waiting for your friend…</div><div class="lc-acts"><button class="lc-btn hi" id="lcShare">Send invite</button><button class="lc-btn" id="lcCancel">Cancel</button></div></div>
+        </div>
         <p class="modehint" id="modeHint"></p>
       </div>
       <button class="cta big" id="playBtn">Play</button>
@@ -116,7 +120,7 @@
       <div id="chipSheet">
         <div class="sh-title" id="chName">Brain chip</div>
         <p class="sh-sub" id="chInfo"></p>
-        <div class="seg chseg" id="chSeg"><button data-t="0">IRONCLAW</button><button data-t="1">STORMWING</button><button data-t="2">DREAD.</button><button data-t="3">HIVE</button><button data-t="4">BEHEMOTH</button><button data-t="5">SPECTRE</button><button data-t="6">TITAN</button><button data-t="7">WARDEN</button><button data-t="8">OMEGA</button></div>
+        <div class="seg chseg" id="chSeg"><button data-t="0">IRONCLAW</button><button data-t="1">STORMWING</button><button data-t="2">DREAD.</button><button data-t="3">HIVE</button><button data-t="4">BEHEMOTH</button><button data-t="5">SPECTRE</button><button data-t="6">TITAN</button><button data-t="7">WARDEN</button><button data-t="9">JUGGER.</button><button data-t="8">OMEGA</button></div>
         <canvas id="chipCv"></canvas>
         <div class="row2"><button class="ghostbtn" id="chStep">Step one beat</button><button class="ghostbtn" id="chReset">Clear memory</button></div>
         <p class="sh-sub" id="chNote">Tap an input to flip it. Green = 1. Yellow squares are LATCHes: the chip's memory between beats. This is the exact netlist the boss runs on X Layer.</p>
@@ -230,11 +234,12 @@
           <div class="hw-kicker">WAYS TO PLAY</div>
           <h2>Pick your war</h2>
           <ul class="hw-list">
-            <li><b class="hw-tag">SOLO</b><span>Hold the line as long as you can. Eight war machines, then they come back stronger.</span></li>
+            <li><b class="hw-tag">SOLO</b><span>Hold the line as long as you can. Nine war machines, then they come back stronger. The ninth, JUGGERNAUT, is fully armoured: bullets ping off, so bring mortars, airstrikes and bazookas.</span></li>
             <li><b class="hw-tag">VS AI</b><span>Same battlefield as an AI commander, live beside you. Hard brings veteran rules.</span></li>
             <li><b class="hw-tag">DAILY OP</b><span>One battlefield for everyone, every day.</span></li>
             <li><b class="hw-tag red">RAID</b><span>OMEGA, the weekly world boss. Everyone's damage comes off one health pool.</span></li>
             <li><b class="hw-tag">FORGE</b><span>Design your own war machine's brain and let others fight it.</span></li>
+            <li><b class="hw-tag">1v1 LIVE</b><span>Create a room, send your friend the code, and fight the same battlefield at the same time. Their base plays live beside yours.</span></li>
             <li><b class="hw-tag">DUELS</b><span>Send a friend your exact battlefield; your run plays beside them as a ghost.</span></li>
           </ul>
         </section>
