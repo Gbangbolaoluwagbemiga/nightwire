@@ -166,8 +166,10 @@ function makesMatchAt(G, r, c) {
   for (let y = r + 1; same(y, c); y++) v++;
   return h >= 3 || v >= 3;
 }
+const isJet = (g) => g.sp === 'row' || g.sp === 'col';
 function validAt(G, r, c, r2, c2) {
   if (G[r][c].c === CORE || G[r2][c2].c === CORE) return true;
+  if (isJet(G[r][c]) && isJet(G[r2][c2])) return true; // JET CROSS
   swapGrid(G, [r, c], [r2, c2]);
   const ok = makesMatchAt(G, r, c) || makesMatchAt(G, r2, c2);
   swapGrid(G, [r, c], [r2, c2]);
@@ -210,6 +212,12 @@ export function judgeSwap(G, a, b) {
       if (other.sp === 'row' || other.sp === 'col') return { core: true, squad: other.c, clear, creates: new Map() };
     }
     return { core: true, clear, creates: new Map() };
+  }
+  // JET CROSS: two fighter jets swapped into each other, match or not. Both jets fly the row AND the column
+  if (isJet(ga) && isJet(gb)) {
+    const clear = new Set();
+    for (const [r, c] of [a, b]) for (let i = 0; i < N; i++) { clear.add(r * N + i); clear.add(i * N + c); }
+    return { core: false, cross: true, clear, creates: new Map() };
   }
   const runs = findRuns(G);
   if (!runs.length) return null;
@@ -367,7 +375,7 @@ export function playMove(run, a, b, fx = NOFX, mk = plain) {
     cleared += applyClear(st, G, rr.clear, rr.creates, fx);
   }
   const chain = st.cascade;
-  return { status: finishTurn(st, G, R, fx), shot, chain, cleared, core: j.core, squad: j.squad !== undefined };
+  return { status: finishTurn(st, G, R, fx), shot, chain, cleared, core: j.core, squad: j.squad !== undefined, cross: !!j.cross };
 }
 
 // ---------------------------------------------------------------- night

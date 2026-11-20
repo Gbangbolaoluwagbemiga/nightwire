@@ -577,6 +577,12 @@ function afterSwap() {
     S.shake = 16;
     buzz(60);
   }
+  if (j.cross) { // JET CROSS: two jets swapped, both fly the row and the column
+    banner('JET CROSS!', 'Two jets strafe every line through them');
+    sfx.jet();
+    S.shake = 12;
+    buzz(45);
+  }
   if (j.core) { // airstrike beacon: a bomber hits every item of that kind
     S.fx.push({ type: 'bomber', t: 0, d: 0.75 });
     let n = 0;

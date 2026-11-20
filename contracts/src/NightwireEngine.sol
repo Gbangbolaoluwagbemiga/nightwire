@@ -205,6 +205,9 @@ contract NightwireEngine {
     function _findMove(G memory g) internal pure returns (bool) {
         uint256 bc = g.c;
         if (_mask(bc, CORE) != 0) return true;
+        // JET CROSS: two fighter jets side by side can always be swapped
+        uint256 jets = _mask(g.sp, SP_ROW) | _mask(g.sp, SP_COL);
+        if ((jets & (jets >> 4) & NOT_C7) | (jets & (jets >> 32)) != 0) return true;
         for (uint256 col; col < 5; col++) {
             uint256 z = _mask(bc, col);
             uint256 r1 = (z >> 4) & NOT_C7; // z(p+1)
@@ -505,6 +508,10 @@ contract NightwireEngine {
         }
     }
 
+    function _isJet(uint8 sp) internal pure returns (bool) {
+        return sp == SP_ROW || sp == SP_COL;
+    }
+
     function _useMove(G memory g) internal pure {
         g.moves--;
         if (g.present && g.moves > 0 && (MOVES_PER_DAY - g.moves) % 4 == 0) {
@@ -537,6 +544,12 @@ contract NightwireEngine {
                 for (uint256 k; k < 64; k++) {
                     if (_gc(g, k) == other) clear |= uint64(1) << k;
                 }
+            }
+        } else if (_isJet(_gs(g, a)) && _isJet(_gs(g, b))) {
+            // JET CROSS: two fighter jets swapped, match or not. Both jets fly the row AND the column
+            for (uint256 i; i < 8; i++) {
+                clear |= (uint64(1) << ((a & ~uint256(7)) + i)) | (uint64(1) << ((b & ~uint256(7)) + i));
+                clear |= (uint64(1) << ((a & 7) + 8 * i)) | (uint64(1) << ((b & 7) + 8 * i));
             }
         } else {
             (uint256[] memory runs, uint256 nr) = _findRuns(g);
