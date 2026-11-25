@@ -43,10 +43,50 @@ export const BOSSES = [
   { name: 'WARDEN', role: 'orbital platform', color: '#F2F2FF', type: 7 },
   { name: 'JUGGERNAUT', role: 'armoured tanker', color: '#9FB4C2', type: 9, armored: true }, // type 8 is OMEGA (raid)
 ];
-// JUGGERNAUT's steel plating: half its health again, worn down before the hull takes a scratch.
+// JUGGERNAUT's steel plating: a third of its health again, worn down before the hull takes a scratch.
 // How hard each weapon bites into armour (%): bullets ping off, shells and rockets crack it open.
-export const ARMOR_PCT = 50;
+export const ARMOR_PCT = 35;
 export const ARMOR_BITE = { 0: 40, 1: 150, 2: 100, bomb: 150, bz: 250 };
+
+// ---------------------------------------------------------------- upgrades
+// After every war machine you destroy, HQ offers three upgrades and you keep one (each goes up to level 3).
+// The offer is drawn from its own seeded stream, so the server and the chain see the same three cards.
+export const UPGRADES = [
+  { key: 'heavy', name: 'HEAVY ROUNDS', icon: '💥', desc: '+20% damage from every weapon, airstrike and bazooka' },
+  { key: 'ap', name: 'AP SHELLS', icon: '🔩', desc: '+50% bite into armour plating' },
+  { key: 'bunker', name: 'BUNKER', icon: '🧱', desc: 'War machine attacks hit your base 12% softer' },
+  { key: 'orders', name: 'EXTRA ORDERS', icon: '📜', desc: '+2 moves every day' },
+  { key: 'medic', name: 'MEDIC CORPS', icon: '🩹', desc: '+50% repairs from medic matches' },
+  { key: 'dome', name: 'DOME CAPACITORS', icon: '🛡', desc: '+50% shield from shield matches' },
+  { key: 'wing', name: 'AIR WING', icon: '✈', desc: '+1 free airstrike every night' },
+  { key: 'cannon', name: 'FIELD CANNON', icon: '🚀', desc: '+1 free bazooka rocket every night' },
+  { key: 'scope', name: 'CRIT SCOPES', icon: '🎯', desc: '+7% critical hit chance (crits do double)' },
+];
+export const UP_MAX = 3;
+export const U = { HEAVY: 0, AP: 1, BUNKER: 2, ORDERS: 3, MEDIC: 4, DOME: 5, WING: 6, CANNON: 7, SCOPE: 8 };
+export const movesPerDay = (st) => MOVES_PER_DAY + 2 * st.up[U.ORDERS];
+export const critLine = (st) => 429496730 + st.up[U.SCOPE] * 300647711; // 10% + 7% a level, of 2^32
+// draw up to three distinct upgrades that are not maxed out
+export function makeOffer(st) {
+  const avail = [];
+  for (let i = 0; i < UPGRADES.length; i++) if (st.up[i] < UP_MAX) avail.push(i);
+  const R = rng(0);
+  R.s = st.urs;
+  const offer = [];
+  while (offer.length < 3 && avail.length) offer.push(avail.splice(Math.floor((R.next() * avail.length) / 4294967296), 1)[0]);
+  st.urs = R.s;
+  st.offer = offer.length ? offer : null;
+  return st.offer;
+}
+// keep card k of the offer
+export function pickUpgrade(st, k) {
+  if (!st.offer || !(k >= 0 && k < st.offer.length)) return false;
+  const id = st.offer[k];
+  st.up[id]++;
+  st.offer = null;
+  if (id === U.ORDERS) st.moves += 2; // the extra orders arrive today
+  return id;
+}
 
 // ---------------------------------------------------------------- seeded randomness (mulberry32, state is one int)
 export function rng(seed) {
@@ -89,8 +129,8 @@ export const forgeSeed = (design) => seedFrom(`forge:${designKey(design)}`);
 export function makeBoss(stageNo, hard = false, forge = null) {
   const d = forge ? { name: forge.design.name, role: 'forged war machine', color: FORGE_COLORS[forge.design.color], type: forge.design.hull } : BOSSES[(stageNo - 1) % BOSSES.length];
   const mk = Math.floor((stageNo - 1) / BOSSES.length);
-  let hp = 1300; // tenths; x1.60 per stage
-  for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 160, 100);
+  let hp = 1300; // tenths; x1.45 per stage
+  for (let i = 1; i < stageNo; i++) hp = rdiv(hp * 145, 100);
   if (hard && stageNo >= VETERAN.from) hp = rdiv(hp * VETERAN.hpPct, 100);
   const armor = !forge && d.armored ? rdiv(hp * ARMOR_PCT, 100) : 0;
   return { ...d, name: mk ? `${d.name} MK ${mk + 1}` : d.name, hp, max: hp, lag: hp, armor, armorMax: armor, age: 0, brain: new Array((forge ? forge.circuit : BRAINS[d.type]).nState).fill(0), flash: 0, dying: -1, charge: 0, look: Math.PI / 2, rage: 0, present: false, recoil: 0 };
@@ -110,7 +150,8 @@ export function newRun(seed, mk = plain, opts = {}) {
   const R = rng(seed), CR = rng(seed ^ 0x5bd1e995);
   const st = {
     seed, stageNo: 1, bossesDown: 0, score: 0, moves: MOVES_PER_DAY, base: BASE_MAX, baseMax: BASE_MAX, shield: 0, shieldMax: 1,
-    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, bazooka: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0, raid: !!opts.raid, hard: false, forge: null, // every rule flag set explicitly: the live game reuses one state object
+    charge: [0, 0, 0, 0, 0], ammo: [0, 0, 0], wtier: [0, 0, 0], strikes: 0, bazooka: 0, boss: makeBoss(1), cascade: 0, over: false, damage: 0,
+    up: new Array(UPGRADES.length).fill(0), offer: null, urs: (seed ^ 0x2545f491) >>> 0, raid: !!opts.raid, hard: false, forge: null, // every rule flag set explicitly: the live game reuses one state object
   };
   if (opts.raid) { st.stageNo = RAID.stage; st.boss = makeRaidBoss(); }
   if (opts.hard && !opts.raid) st.hard = true;
@@ -335,7 +376,7 @@ export function dropAndRefill(G, R, mk = plain) {
 export function useMove(st) {
   st.moves--;
   const b = st.boss;
-  if (b && b.present && st.moves > 0 && (MOVES_PER_DAY - st.moves) % 4 === 0) {
+  if (b && b.present && st.moves > 0 && (movesPerDay(st) - st.moves) % 4 === 0) {
     const dmg = (3 + 2 * st.stageNo + b.rage) * 10;
     const absorbed = Math.min(st.shield, dmg); // the shield stays up until it is knocked down
     st.shield -= absorbed;
@@ -358,7 +399,7 @@ export function finishTurn(st, G, R, fx = NOFX) {
 // Play one whole move instantly (AI, ghosts, verifier). null = illegal move.
 export function playMove(run, a, b, fx = NOFX, mk = plain) {
   const { st, G, R } = run;
-  if (st.over || st.moves <= 0 || !adjacent(a, b)) return null;
+  if (st.over || st.offer || st.moves <= 0 || !adjacent(a, b)) return null;
   swapGrid(G, a, b);
   const j = judgeSwap(G, a, b);
   if (!j) { swapGrid(G, a, b); return null; }
@@ -381,21 +422,22 @@ export function playMove(run, a, b, fx = NOFX, mk = plain) {
 // ---------------------------------------------------------------- night
 // Turn the day's munitions into weapons and lay out the fight's timeline.
 export function planNight(st) {
-  const mulP = 100 + 12 * (st.stageNo - 1); // percent
+  const mulP = rdiv((100 + 12 * (st.stageNo - 1)) * (100 + 20 * st.up[U.HEAVY]), 100); // percent
   for (let i = 0; i < 3; i++) {
     st.ammo[i] = Math.floor(st.charge[i] / 6); // 3 points (6 half-points) per shot
     st.charge[i] -= st.ammo[i] * 6;
     st.wtier[i] = tierOf(i, st.ammo[i]);
   }
   const shieldPts = st.charge[3]; // 2 shield per point = 1 per half-point
-  st.shield = Math.min(BASE_MAX, st.shield + rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * 10); // stacks on what is left
+  st.shield = Math.min(BASE_MAX, st.shield + rdiv(rdiv(shieldPts * TIER_PCT[tierOf(3, shieldPts)], 100) * (100 + 50 * st.up[U.DOME]), 100) * 10); // stacks on what is left
   st.charge[3] = 0;
   const repTier = tierOf(4, Math.floor(st.charge[4] / 2));
-  const repair = rdiv(st.charge[4] * TIER_PCT[repTier], 200) * 10; // the medics' pool: they patch up hits as they land
+  const repair = rdiv(rdiv(st.charge[4] * TIER_PCT[repTier], 200) * (100 + 50 * st.up[U.MEDIC]), 100) * 10; // the medics' pool: they patch up hits as they land
   st.shieldMax = Math.max(1, st.shield);
   st.charge[4] = 0;
-  const bz = st.bazooka, bzDmg = rdiv(600 * mulP, 100);
+  const bz = Math.min(MAX_BAZOOKA, st.bazooka + st.up[U.CANNON]), bzDmg = rdiv(600 * mulP, 100);
   st.bazooka = 0;
+  st.strikes = Math.min(MAX_STRIKES, st.strikes + st.up[U.WING]);
   const shots = [];
   const left = st.ammo.slice();
   while (left.some((n) => n > 0)) for (let w = 0; w < 3; w++) if (left[w] > 0) { left[w]--; shots.push(w); }
@@ -405,6 +447,7 @@ export function planNight(st) {
   const attacks = 4 + st.stageNo + rage + (veteran(st) ? VETERAN.extraAttacks : 0);
   let bossDmg = rdiv((6 + 3 * (st.stageNo - 1)) * 10 * (4 + rage), 4);
   if (veteran(st)) bossDmg = rdiv(bossDmg * VETERAN.dmgPct, 100);
+  bossDmg = rdiv(bossDmg * (100 - 12 * st.up[U.BUNKER]), 100);
   const dur = Math.max(4500, shots.length * spacing + 500); // the war machine fights back while the arsenal fires
   for (let j = 0; j < attacks; j++) events.push({ t: NIGHT_START + 600 + Math.floor((j * dur) / attacks), kind: 'boss', dmg: bossDmg });
   events.sort((x, y) => x.t - y.t);
@@ -412,6 +455,7 @@ export function planNight(st) {
   return {
     events, repair, bz, bzDmg, mulP, wtier: st.wtier.slice(), ammo: st.ammo.slice(), base: st.base, baseMax: st.baseMax, shield: st.shield, hp: st.boss.hp, armor: st.boss.armor || 0, score: st.score, strikes: st.strikes,
     max: st.boss.max, rage, type: st.boss.type, brain: st.boss.brain.slice(), bossDmg, circuit: st.forge ? st.forge.circuit : null,
+    critLine: critLine(st), apPct: 100 + 50 * st.up[U.AP],
   };
 }
 
@@ -487,10 +531,10 @@ export function simNight(plan, strikes, crState) {
       out.push({ ...it, strikes: left });
     } else if (it.type === 'hit') {
       if (dead || (it.sid !== undefined && !live.has(it.sid))) continue;
-      const crit = CR.next() < 429496730; // 10%
+      const crit = CR.next() < plan.critLine; // 10%, more with crit scopes
       let d = it.dmg * (crit ? 2 : 1), ad = 0;
       if (armor > 0) { // armour first, scaled by how hard this weapon bites; a breaking hit spills into the hull
-        const bite = ARMOR_BITE[it.src], eff = rdiv(d * bite, 100);
+        const bite = rdiv(ARMOR_BITE[it.src] * plan.apPct, 100), eff = rdiv(d * bite, 100);
         if (eff <= armor) { armor -= eff; ad = eff; d = 0; } else { ad = armor; d = rdiv((eff - armor) * 100, bite); armor = 0; }
       }
       hp = Math.max(0, hp - d);
@@ -578,7 +622,7 @@ export function bossDefeated(st) { const bonus = 500 * st.stageNo; st.score += b
 export function nextStage(st) { st.stageNo++; st.base = Math.min(st.baseMax, st.base + 300); st.boss = makeBoss(st.stageNo, st.hard, st.forge); }
 export function bossHolds(st) { st.boss.present = true; st.boss.rage++; }
 export function startDay(run) {
-  run.st.moves = MOVES_PER_DAY; // the shield is kept
+  run.st.moves = movesPerDay(run.st); // the shield is kept
   if (!findMove(run.G)) { shuffle(run.G, run.R); return true; }
   return false;
 }
@@ -588,7 +632,7 @@ export function runNight(run, strikes) {
   const plan = planNight(run.st);
   const script = simNight(plan, strikes, run.CR.s);
   const out = finishNight(run, script);
-  if (out === 'kill') { bossDefeated(run.st); nextStage(run.st); startDay(run); }
+  if (out === 'kill') { bossDefeated(run.st); nextStage(run.st); startDay(run); makeOffer(run.st); }
   else if (out === 'hold') { bossHolds(run.st); startDay(run); }
   return script;
 }
@@ -597,8 +641,10 @@ export function runNight(run, strikes) {
 // A move is "r1c1r2c2" (e.g. "3435"); a night is "N" followed by airstrike call times in ms ("N2410|3070").
 export const encodeMove = (a, b) => `${a[0]}${a[1]}${b[0]}${b[1]}`;
 export const encodeNight = (strikes) => `N${strikes.join('|')}`;
+export const encodePick = (k) => `U${k}`;
 export function parseAction(s) {
   if (s[0] === 'N') return { night: true, strikes: s.length > 1 ? s.slice(1).split('|').map(Number) : [] };
+  if (s[0] === 'U') return { pick: +s.slice(1) };
   return { night: false, a: [+s[0], +s[1]], b: [+s[2], +s[3]] };
 }
 export function replay(seed, actions, opts = {}) {
@@ -606,8 +652,10 @@ export function replay(seed, actions, opts = {}) {
   for (let i = 0; i < actions.length; i++) {
     if (run.st.over) return { ok: false, reason: `action ${i} after the base fell`, st: run.st };
     const act = parseAction(actions[i]);
-    if (act.night) {
-      if (run.st.moves > 0) return { ok: false, reason: `night ${i} before the moves ran out`, st: run.st };
+    if (act.pick !== undefined) {
+      if (pickUpgrade(run.st, act.pick) === false) return { ok: false, reason: `no upgrade ${act.pick} on offer at ${i}`, st: run.st };
+    } else if (act.night) {
+      if (run.st.moves > 0 || run.st.offer) return { ok: false, reason: `night ${i} before the moves ran out`, st: run.st };
       runNight(run, act.strikes);
     } else if (!playMove(run, act.a, act.b)) return { ok: false, reason: `illegal move ${actions[i]} at ${i}`, st: run.st };
   }
@@ -619,7 +667,8 @@ export function encodeBinary(actions) {
   const out = [];
   for (const s of actions) {
     const a = parseAction(s);
-    if (a.night) {
+    if (a.pick !== undefined) out.push(0xc0 | a.pick);
+    else if (a.night) {
       out.push(0x80 | a.strikes.length);
       for (const t of a.strikes) out.push((t >> 8) & 255, t & 255);
     } else {

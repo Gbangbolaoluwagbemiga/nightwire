@@ -10,7 +10,7 @@ import {ICircuits} from "./ITapeOut.sol";
 /// @dev    Integers only. HP, damage, shield and base are in tenths; weapon charge is in half-points; fight
 ///         times are in milliseconds. Action bytes: a move is one byte < 128 (cell * 2 + dir, dir 0 = swap with
 ///         the cell to the right, 1 = with the cell below); a night is 0x80 | k followed by k airstrike call
-///         times as big-endian uint16 milliseconds.
+///         times as big-endian uint16 milliseconds; an upgrade pick (after a kill) is 0xC0 | card.
 contract NightwireEngine {
     uint256 constant N = 8;
     uint8 constant CORE = 5;
@@ -26,8 +26,20 @@ contract NightwireEngine {
     uint32 constant BOSS_FLIGHT = 700;
     uint32 constant MEDIC_PCT = 60;
     uint32 constant MAX_BAZOOKA = 9;
-    uint32 constant ARMOR_PCT = 50; // JUGGERNAUT's plating, as a share of its health
+    uint32 constant ARMOR_PCT = 35; // JUGGERNAUT's plating, as a share of its health
     uint8 constant JUGGERNAUT = 9; // brain/type index (8 is OMEGA)
+    // upgrades (src/engine.js UPGRADES): one of three offered after every kill, each up to level 3
+    uint256 constant N_UP = 9;
+    uint8 constant UP_MAX = 3;
+    uint256 constant U_HEAVY = 0;
+    uint256 constant U_AP = 1;
+    uint256 constant U_BUNKER = 2;
+    uint256 constant U_ORDERS = 3;
+    uint256 constant U_MEDIC = 4;
+    uint256 constant U_DOME = 5;
+    uint256 constant U_WING = 6;
+    uint256 constant U_CANNON = 7;
+    uint256 constant U_SCOPE = 8;
 
     ICircuits public immutable armory;
     uint256[10] public brainIds; // ironclaw, stormwing, dreadnought, hive, behemoth, spectre, titan, warden, omega (raid), juggernaut
@@ -71,6 +83,10 @@ contract NightwireEngine {
         uint256 damage; // total damage dealt this run (the raid contribution)
         uint256 customBrain; // Boss Forge: an Armory circuit used as every boss's brain (0 = built-in brains)
         uint8 customBits;
+        uint8[9] up; // upgrade levels
+        uint8[3] offer; // cards on offer after a kill
+        uint8 nOffer;
+        uint32 urs; // upgrade-offer RNG state
     }
 
     struct Result {
@@ -124,7 +140,7 @@ contract NightwireEngine {
     function _makeBoss(G memory g) internal pure {
         uint256 hp = 1300;
         for (uint256 i = 1; i < g.stageNo; i++) {
-            hp = _rdiv(hp * 160, 100);
+            hp = _rdiv(hp * 145, 100);
         }
         g.hp = uint32(hp);
         g.maxHp = uint32(hp);
@@ -142,6 +158,7 @@ contract NightwireEngine {
         g.rs = seed;
         unchecked {
             g.crs = seed ^ 0x5bd1e995;
+            g.urs = seed ^ 0x2545f491;
         }
         g.stageNo = 1;
         g.moves = MOVES_PER_DAY;
@@ -512,9 +529,37 @@ contract NightwireEngine {
         return sp == SP_ROW || sp == SP_COL;
     }
 
+    function _movesPerDay(G memory g) internal pure returns (uint32) {
+        return MOVES_PER_DAY + 2 * uint32(g.up[U_ORDERS]);
+    }
+
+    function _makeOffer(G memory g) internal pure {
+        uint8[9] memory avail;
+        uint256 n;
+        for (uint256 i; i < N_UP; i++) if (g.up[i] < UP_MAX) avail[n++] = uint8(i);
+        g.nOffer = 0;
+        while (g.nOffer < 3 && n > 0) {
+            uint32 o;
+            (g.urs, o) = _next(g.urs);
+            uint256 idx = (uint256(o) * n) >> 32;
+            g.offer[g.nOffer++] = avail[idx];
+            for (uint256 j = idx; j + 1 < n; j++) avail[j] = avail[j + 1];
+            n--;
+        }
+    }
+
+    function _pick(G memory g, uint256 k) internal pure returns (bool) {
+        if (k >= g.nOffer) return false;
+        uint8 id = g.offer[k];
+        g.up[id]++;
+        g.nOffer = 0;
+        if (id == U_ORDERS) g.moves += 2; // the extra orders arrive today
+        return true;
+    }
+
     function _useMove(G memory g) internal pure {
         g.moves--;
-        if (g.present && g.moves > 0 && (MOVES_PER_DAY - g.moves) % 4 == 0) {
+        if (g.present && g.moves > 0 && (_movesPerDay(g) - g.moves) % 4 == 0) {
             uint32 dmg = (3 + 2 * g.stageNo + g.rage) * 10;
             uint32 absorbed = dmg < g.shield ? dmg : g.shield; // the shield stays up until knocked down
             g.shield -= absorbed;
@@ -525,7 +570,7 @@ contract NightwireEngine {
 
     /// @dev returns (legal, status): status 0 idle, 1 night, 2 over
     function _playMove(G memory g, uint256 a, uint256 b) internal pure returns (bool legal, uint8 status) {
-        if (g.over || g.moves == 0) return (false, 0);
+        if (g.over || g.nOffer != 0 || g.moves == 0) return (false, 0);
         _swap(g, a, b);
         uint64 clear;
         Creates memory cr;
@@ -653,6 +698,8 @@ contract NightwireEngine {
         uint256[3] wtier;
         uint32 rage;
         uint256 bossDmg;
+        uint256 critLine;
+        uint256 apPct;
         uint256 killT;
         uint256 bz;
         uint256 bzDmg;
@@ -662,7 +709,9 @@ contract NightwireEngine {
     }
 
     function _planNight(G memory g) internal pure returns (Night memory nt) {
-        nt.mulP = 100 + 12 * (g.stageNo - 1);
+        nt.mulP = _rdiv((100 + 12 * uint256(g.stageNo - 1)) * (100 + 20 * uint256(g.up[U_HEAVY])), 100);
+        nt.critLine = 429496730 + uint256(g.up[U_SCOPE]) * 300647711; // 10% + 7% a level, of 2^32
+        nt.apPct = 100 + 50 * uint256(g.up[U_AP]);
         uint256[3] memory ammo;
         uint256 shots;
         for (uint256 i; i < 3; i++) {
@@ -672,16 +721,19 @@ contract NightwireEngine {
             shots += ammo[i];
         }
         uint256 sp = g.charge[3];
-        uint256 sh = g.shield + _rdiv(sp * _tierPct(_tierOf(3, sp)), 100) * 10; // stacks on what is left
+        uint256 sh = g.shield + _rdiv(_rdiv(sp * _tierPct(_tierOf(3, sp)), 100) * (100 + 50 * uint256(g.up[U_DOME])), 100) * 10; // stacks on what is left
         g.shield = uint32(sh > BASE_MAX ? BASE_MAX : sh);
         g.charge[3] = 0;
         uint256 repTier = _tierOf(4, g.charge[4] / 2);
-        nt.heal = uint32(_rdiv(uint256(g.charge[4]) * _tierPct(repTier), 200) * 10); // the medics' pool
+        nt.heal = uint32(_rdiv(_rdiv(uint256(g.charge[4]) * _tierPct(repTier), 200) * (100 + 50 * uint256(g.up[U_MEDIC])), 100) * 10); // the medics' pool
         g.charge[4] = 0;
         nt.rage = g.rage;
-        nt.bz = g.bazooka;
+        nt.bz = g.bazooka + g.up[U_CANNON];
+        if (nt.bz > MAX_BAZOOKA) nt.bz = MAX_BAZOOKA;
         nt.bzDmg = _rdiv(600 * nt.mulP, 100);
         g.bazooka = 0;
+        g.strikes += g.up[U_WING];
+        if (g.strikes > MAX_STRIKES) g.strikes = MAX_STRIKES;
 
         uint256 spacing;
         if (shots > 0) {
@@ -694,6 +746,7 @@ contract NightwireEngine {
         uint256 dur = shots * spacing + 500;
         if (dur < 4500) dur = 4500;
         uint256 bossDmg = _rdiv((6 + 3 * (g.stageNo - 1)) * 10 * (4 + g.rage), 4);
+        bossDmg = _rdiv(bossDmg * (100 - 12 * uint256(g.up[U_BUNKER])), 100);
         nt.bossDmg = bossDmg;
         // shots round-robin across weapons, then merge with boss attacks by time (shots first on ties)
         uint256[3] memory left = ammo;
@@ -831,10 +884,10 @@ contract NightwireEngine {
                 if ((hp == 0) || (sid != 0xff && (liveStrikes >> sid) & 1 == 0)) continue;
                 uint32 o;
                 (g.crs, o) = _next(g.crs);
-                uint256 d = (val & 0xffffffff) * (o < 429496730 ? 2 : 1);
+                uint256 d = (val & 0xffffffff) * (o < nt.critLine ? 2 : 1);
                 uint256 ad;
                 if (g.armor > 0) { // armour first, scaled by how hard the weapon bites; a breaking hit spills into the hull
-                    uint256 bite = _bite(val >> 40);
+                    uint256 bite = _rdiv(_bite(val >> 40) * nt.apPct, 100);
                     uint256 eff = _rdiv(d * bite, 100);
                     if (eff <= g.armor) {
                         g.armor -= uint32(eff);
@@ -925,8 +978,9 @@ contract NightwireEngine {
             g.present = true;
             g.rage++;
         }
-        g.moves = MOVES_PER_DAY; // the shield is kept
+        g.moves = _movesPerDay(g); // the shield is kept
         if (!_findMove(g)) _shuffle(g);
+        if (outcome == 1) _makeOffer(g); // HQ offers three upgrades
     }
 
     // ------------------------------------------------------------------ replay
@@ -975,8 +1029,10 @@ contract NightwireEngine {
                 }
                 (bool legal,) = _playMove(g, cell, other);
                 if (!legal) return _fail(g, idx);
+            } else if (b >= 0xC0) {
+                if (!_pick(g, b & 0x3f)) return _fail(g, idx);
             } else {
-                if (g.moves != 0) return _fail(g, idx);
+                if (g.moves != 0 || g.nOffer != 0) return _fail(g, idx);
                 uint256 k = b & 0x7f;
                 if (k > MAX_STRIKES || i + 2 * k > actions.length) return _fail(g, idx);
                 uint16[] memory strikes = new uint16[](k);

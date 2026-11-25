@@ -72,7 +72,7 @@ function limited(ip, max = 30) {
   return h.n > max;
 }
 
-const ACTION = /^(\d{4}|N(\d{1,5}(\|\d{1,5}){0,8})?)$/;
+const ACTION = /^(\d{4}|U[0-2]|N(\d{1,5}(\|\d{1,5}){0,8})?)$/;
 const cleanName = (s) => String(s || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16) || 'Anonymous';
 
 function verify(seed, actions, opts = {}) {

@@ -23,6 +23,8 @@ contract Prof is NightwireEngine {
                 if (u > maxMove) maxMove = u;
                 if (u > 900000) shuffles++;
                 rs0;
+            } else if (b >= 0xC0) {
+                _pick(g, b & 0x3f);
             } else {
                 uint256 k = b & 0x7f;
                 uint16[] memory st = new uint16[](k);

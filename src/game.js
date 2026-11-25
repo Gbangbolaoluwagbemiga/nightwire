@@ -1216,6 +1216,7 @@ function newGame(mode = MODE) {
   ui.title.classList.remove('show');
   ui.over.classList.remove('show');
   ui.ranks.classList.remove('show');
+  $('upgrade').classList.remove('show');
   guardGame();
   stage.classList.add('playing');
   startDay(true);
@@ -1535,10 +1536,50 @@ function bossDefeated() {
     E.nextStage(S);
     S.bp = { x: 195, y: -80, s: 0.3 };
     startDay();
-    if (S.boss.armorMax) toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b>, full armour. Bullets ping off: stack <b>mortars</b>, airstrikes and <b>bazookas</b> to crack it.`, true, 4600);
-    else toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) inbound`, true, 3000);
+    if (E.makeOffer(S)) { showOffer(); return; }
+    stageToast();
   }, 2000);
 }
+function stageToast() {
+  if (S.boss.armorMax) toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b>, full armour. Bullets ping off: stack <b>mortars</b>, airstrikes and <b>bazookas</b> to crack it.`, true, 4600);
+  else toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) inbound`, true, 3000);
+}
+
+// ================================================================ upgrades: keep one of three after every kill
+const upEl = $('upgrade'), upCards = $('upCards'), upOwned = $('upOwned');
+function upLevel(n) { return '●'.repeat(n) + '○'.repeat(E.UP_MAX - n); }
+function showOffer() {
+  S.bstate = 'pick';
+  S.sel = null;
+  S.hint = null;
+  $('upStage').textContent = `Stage ${S.stageNo} next: ${S.boss.name}`;
+  upCards.innerHTML = S.offer.map((id, k) => {
+    const u = E.UPGRADES[id], lv = S.up[id];
+    return `<button class="up-card" data-k="${k}"><span class="up-ic">${u.icon}</span><span class="up-txt"><b>${u.name}</b><small>${u.desc}</small></span><span class="up-lv">${lv ? `LV ${lv + 1}` : 'NEW'}<i>${upLevel(lv + 1)}</i></span></button>`;
+  }).join('');
+  const owned = E.UPGRADES.map((u, i) => (S.up[i] ? `<span>${u.icon} ${u.name} ${S.up[i]}</span>` : '')).join('');
+  upOwned.innerHTML = owned ? `<span class="lbl">YOUR UPGRADES</span>${owned}` : '';
+  upEl.classList.add('show');
+  sfx.select();
+}
+upCards.addEventListener('click', (e) => {
+  const btn = e.target.closest('.up-card');
+  if (!btn || S.bstate !== 'pick' || !S.offer) return;
+  const k = +btn.dataset.k;
+  const id = E.pickUpgrade(S, k);
+  if (id === false) return;
+  LOG.push(E.encodePick(k));
+  upEl.classList.remove('show');
+  S.bstate = 'idle';
+  syncHud();
+  bumpMoves();
+  unlockAudio();
+  sfx.select();
+  buzz(25);
+  const u = E.UPGRADES[id];
+  banner(`${u.name} ${S.up[id]}`, u.desc);
+  setTimeout(stageToast, 1400);
+});
 
 // ================================================================ runs, leaderboard, duels
 function loadRuns() { try { return JSON.parse(localStorage.getItem('nw-runs') || '[]'); } catch { return []; } }
@@ -2034,7 +2075,7 @@ function update(dt) {
   const b = S.boss;
   if (b) {
     const day = S.phase !== 'night' && !(b.dying >= 0);
-    const prog = 1 - S.moves / MOVES_PER_DAY;
+    const prog = 1 - S.moves / E.movesPerDay(S);
     const ks = skyS();
     const tgt = !day ? { x: 195, y: skyY(0.47), s: ks }
       : b.present ? { x: 195 + Math.sin(S.time * 0.6) * 40, y: skyY(0.38 + prog * 0.05), s: (0.72 + prog * 0.18) * ks }

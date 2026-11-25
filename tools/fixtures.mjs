@@ -18,12 +18,19 @@ for (let i = 0; i < count; i++) {
 }
 // chaos games: random legal moves and airstrike calls at random (often invalid) times
 const chaos = Number(process.argv[3] || 0);
-let squadrons = 0, crosses = 0;
+let squadrons = 0, crosses = 0, picks = 0;
 for (let i = 0; i < chaos; i++) {
   const seed = (0x85ebca6b * (i + 7)) >>> 0;
   const run = E.newRun(seed);
   const log = [];
   while (!run.st.over && log.length < 400) {
+    if (run.st.offer) { // after a kill: keep a random card
+      const k = Math.floor(Math.random() * run.st.offer.length);
+      log.push(E.encodePick(k));
+      E.pickUpgrade(run.st, k);
+      picks++;
+      continue;
+    }
     if (run.st.moves <= 0) {
       const k = Math.floor(Math.random() * (run.st.strikes + 3));
       const strikes = Array.from({ length: Math.min(k, 5) }, () => Math.floor(Math.random() * 15000));
@@ -87,3 +94,4 @@ fs.writeFileSync(new URL('../contracts/test/fixtures.json', import.meta.url), JS
 console.log(`wrote ${games.length} games; actions ${Math.min(...games.map((g) => g.n))}..${Math.max(...games.map((g) => g.n))}; bytes up to ${Math.max(...games.map((g) => (g.actions.length - 2) / 2))}`);
 console.log(`SQUADRON combos in the chaos games: ${squadrons}`);
 console.log(`JET CROSS combos in the chaos games: ${crosses}`);
+console.log(`upgrade picks in the chaos games: ${picks}; AI games reaching stage 9+: ${games.slice(0, count).filter((g) => g.stage >= 9).length}/${count}`);

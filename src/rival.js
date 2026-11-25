@@ -13,7 +13,7 @@ export const LEVELS = {
 function cloneRun(run) {
   const st = run.st;
   return {
-    st: { ...st, charge: st.charge.slice(), ammo: st.ammo.slice(), wtier: st.wtier.slice(), boss: { ...st.boss } },
+    st: { ...st, charge: st.charge.slice(), ammo: st.ammo.slice(), wtier: st.wtier.slice(), up: st.up.slice(), boss: { ...st.boss } },
     G: run.G.map((row) => row.map((g) => ({ c: g.c, sp: g.sp }))),
     R: E.rng(E.randomSeed()), // the AI can't see future supplies
     CR: E.rng(run.CR.s),
@@ -27,7 +27,7 @@ function value(before, after, smart) {
   let v = d[0] + d[1] * 1.15 + d[2] * 1.1 + (s1.strikes - s0.strikes) * 7 + (s1.score - s0.score) * 0.004;
   const hurt = 1 - s0.base / s0.baseMax;
   if (!smart) return v + d[3] * 0.8 + d[4] * 0.5;
-  const threat = (4 + s0.stageNo + s0.boss.rage) * (6 + 3 * (s0.stageNo - 1)) * (1 + 0.25 * s0.boss.rage) * 10;
+  const threat = (4 + s0.stageNo + s0.boss.rage) * (1 - 0.12 * s0.up[E.U.BUNKER]) * (6 + 3 * (s0.stageNo - 1)) * (1 + 0.25 * s0.boss.rage) * 10;
   v += d[3] * (0.4 + Math.min(1.4, threat / Math.max(20, s0.base) * 0.6));
   v += d[4] * (0.1 + hurt * 2.2);
   let sp = 0;
@@ -41,12 +41,21 @@ function project(sim) {
   const st = p.st;
   const strikes = Array.from({ length: st.strikes }, (_, j) => 2400 + j * 600);
   const script = E.simNight(E.planNight(st), strikes, p.CR.s);
-  const urgency = 1 + (E.MOVES_PER_DAY - sim.st.moves) / E.MOVES_PER_DAY; // matters more as night nears
+  const urgency = 1 + (E.movesPerDay(sim.st) - sim.st.moves) / E.movesPerDay(sim.st); // matters more as night nears
   if (script.outcome === 'over') return -60 * urgency;
   let v = (script.base / st.baseMax) * 14 * urgency;
   if (script.outcome === 'kill') v += 30 * urgency;
   else v -= (script.hp / st.boss.max) * 24 * urgency;
   return v;
+}
+
+// The AI's upgrade taste: firepower first, then whatever keeps the base standing. Easy picks at random.
+const PICK_ORDER = [E.U.HEAVY, E.U.BUNKER, E.U.WING, E.U.AP, E.U.SCOPE, E.U.ORDERS, E.U.CANNON, E.U.DOME, E.U.MEDIC];
+export function aiPick(st, level) {
+  if (level === 'easy') return Math.floor(Math.random() * st.offer.length);
+  let best = 0;
+  for (let k = 1; k < st.offer.length; k++) if (PICK_ORDER.indexOf(st.offer[k]) < PICK_ORDER.indexOf(st.offer[best])) best = k;
+  return best;
 }
 
 export function makeRival(seed, level, ghostActions = null, opts = {}) {
@@ -111,7 +120,24 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
     return at(have);
   }
 
+  function doPick() { // after a kill: keep one of the three upgrades on offer
+    let k;
+    if (R.actions) {
+      if (R.live && !R.actions.length) return;
+      const s = R.actions.shift();
+      if (s === 'Q') { R.phase = 'over'; R.finished = true; R.left = true; emit('left'); return; }
+      if (!s || s[0] !== 'U') { R.phase = 'over'; R.finished = true; return; }
+      k = +s.slice(1);
+    } else k = aiPick(run.st, level);
+    const id = E.pickUpgrade(run.st, k);
+    if (id === false) { R.phase = 'over'; R.finished = true; return; }
+    R.log.push(E.encodePick(k));
+    R.dirty = true;
+    emit('upgrade', { id });
+  }
+
   function doMove() {
+    if (run.st.offer) { doPick(); return; }
     let a, b;
     if (R.actions) {
       if (R.live && !R.actions.length) return; // their next move has not arrived yet
@@ -162,7 +188,7 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
     const name = st.boss.name;
     const out = E.finishNight(run, script);
     R.night = null;
-    if (out === 'kill') { E.bossDefeated(st); E.nextStage(st); E.startDay(run); emit('kill', { name }); }
+    if (out === 'kill') { E.bossDefeated(st); E.nextStage(st); E.startDay(run); E.makeOffer(st); emit('kill', { name }); }
     else if (out === 'hold') { E.bossHolds(st); E.startDay(run); }
     else { R.phase = 'over'; R.finished = true; emit('fell'); return; }
     R.phase = 'day';
@@ -181,7 +207,7 @@ export function makeRival(seed, level, ghostActions = null, opts = {}) {
       }
     } else if (R.phase === 'day') {
       R.timer -= dt;
-      const ready = R.actions || dt === 0 || think(3);
+      const ready = R.actions || dt === 0 || run.st.offer || think(3);
       if (R.timer <= 0 && ready) { R.timer = R.live ? (R.actions.length > 3 ? 0.08 : cfg.pace) : cfg.pace * (0.75 + Math.random() * 0.5); doMove(); }
     } else if (R.phase === 'night') {
       const n = R.night;
