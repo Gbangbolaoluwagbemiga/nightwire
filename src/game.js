@@ -1248,6 +1248,7 @@ function startNight() {
   S.hint = null;
   stage.classList.add('night');
   ORBS.forEach((o) => { if (o.on) { S.shown[o.gi] += o.val; o.on = false; } });
+  S.medTier = E.tierOf(4, Math.floor(S.charge[4] / 2)); // the repair crew earned by day keeps its rank all night
   const plan = E.planNight(S);
   NIGHT = { plan, cr: RUN.CR.s, strikes: [], i: 0, endAt: -1, tx: {} };
   NIGHT.script = E.simNight(plan, [], NIGHT.cr);
@@ -1557,7 +1558,7 @@ function showOffer() {
   $('upStage').textContent = `Stage ${S.stageNo} next: ${S.boss.name}`;
   upCards.innerHTML = S.offer.map((id, k) => {
     const u = E.UPGRADES[id], lv = S.up[id];
-    return `<button class="up-card" data-k="${k}"><span class="up-ic">${u.icon}</span><span class="up-txt"><b>${u.name}</b><small>${u.desc}</small></span><span class="up-lv">${lv ? `LV ${lv + 1}` : 'NEW'}<i>${upLevel(lv + 1)}</i></span></button>`;
+    return `<button class="up-card" data-k="${k}"><span class="up-ic">${u.icon}</span><span class="up-txt"><b>${u.name}</b><small>${u.desc}</small></span><span class="up-lv">${lv ? `LV ${lv}→${lv + 1}` : 'NEW'}<i>${upLevel(lv + 1)}</i></span></button>`;
   }).join('');
   const owned = E.UPGRADES.map((u, i) => (S.up[i] ? `<span>${u.icon} ${u.name} ${S.up[i]}</span>` : '')).join('');
   upOwned.innerHTML = owned ? `<span class="lbl">YOUR UPGRADES</span>${owned}` : '';
@@ -1568,6 +1569,7 @@ upCards.addEventListener('click', (e) => {
   const btn = e.target.closest('.up-card');
   if (!btn || S.bstate !== 'pick' || !S.offer) return;
   const k = +btn.dataset.k;
+  const before = { strikes: S.strikes, bazooka: S.bazooka };
   const id = E.pickUpgrade(S, k);
   if (id === false) return;
   LOG.push(E.encodePick(k));
@@ -1579,7 +1581,11 @@ upCards.addEventListener('click', (e) => {
   sfx.select();
   buzz(25);
   const u = E.UPGRADES[id];
-  banner(`${u.name} ${S.up[id]}`, u.desc);
+  const now = id === E.U.WING ? (S.strikes >= E.MAX_STRIKES && before.strikes >= E.MAX_STRIKES ? 'Airstrikes already full (9): the bonus comes each night once you use some' : `+1 AIRSTRIKE now: ${S.strikes} ready`)
+    : id === E.U.CANNON ? (S.bazooka > before.bazooka ? `+1 BAZOOKA now: ${S.bazooka} loaded` : 'Bazookas already full (9)')
+    : id === E.U.ORDERS ? `+2 moves now: ${S.moves} left today` : u.desc;
+  banner(`${u.name} LV ${S.up[id]}`, now);
+  if (id === E.U.WING && S.strikes > before.strikes) { ui.strikeBtn.classList.add('urgent'); setTimeout(() => ui.strikeBtn.classList.remove('urgent'), 1600); }
   setTimeout(stageToast, 1400);
 });
 
@@ -3094,7 +3100,7 @@ function drawWeapons() {
     if (i < 3) { val = S.phase === 'night' ? S.ammo[i] : Math.floor(v / 3); big = `x${val}`; prog = S.phase === 'night' ? null : (v % 3) / 3; }
     else if (i === 3) { val = S.phase === 'night' ? Math.ceil(S.shield / 10) : Math.round(v * 2); big = S.phase === 'night' ? `${val}` : `+${val}`; } // by day: armour banked for nightfall
     else { val = S.phase === 'night' ? Math.round((S.medicPool || 0) / 10) : Math.round(v); big = `+${val}`; } // by night: the medics' pool left
-    const tier = i < 3 && S.phase === 'night' ? S.wtier[i] : tierOf(i, i < 3 ? Math.floor(v / 3) : val);
+    const tier = i < 3 && S.phase === 'night' ? S.wtier[i] : i === 4 && S.phase === 'night' ? (S.medTier || 0) : tierOf(i, i < 3 ? Math.floor(v / 3) : val);
     ctx.font = '800 7.5px "JetBrains Mono", monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';

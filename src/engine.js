@@ -70,10 +70,10 @@ export const UPGRADES = [
   { key: 'ap', name: 'AP SHELLS', icon: '🔩', desc: '+50% bite into armour plating' },
   { key: 'bunker', name: 'BUNKER', icon: '🧱', desc: 'War machine attacks hit your base 12% softer' },
   { key: 'orders', name: 'EXTRA ORDERS', icon: '📜', desc: '+2 moves every day' },
-  { key: 'medic', name: 'MEDIC CORPS', icon: '🩹', desc: '+50% repairs from medic matches' },
+  { key: 'medic', name: 'REPAIR CREWS', icon: '🔧', desc: '+50% repairs from FIELD HQ (wrench) matches' },
   { key: 'dome', name: 'DOME CAPACITORS', icon: '🛡', desc: '+50% shield from shield matches' },
-  { key: 'wing', name: 'AIR WING', icon: '✈', desc: '+1 free airstrike every night' },
-  { key: 'cannon', name: 'FIELD CANNON', icon: '🚀', desc: '+1 free bazooka rocket every night' },
+  { key: 'wing', name: 'AIR WING', icon: '✈', desc: '+1 airstrike now and +1 every night' },
+  { key: 'cannon', name: 'FIELD CANNON', icon: '🚀', desc: '+1 bazooka rocket now and +1 every night' },
   { key: 'scope', name: 'CRIT SCOPES', icon: '🎯', desc: '+7% critical hit chance (crits do double)' },
 ];
 export const UP_MAX = 3;
@@ -99,6 +99,8 @@ export function pickUpgrade(st, k) {
   st.up[id]++;
   st.offer = null;
   if (id === U.ORDERS) st.moves += 2; // the extra orders arrive today
+  if (id === U.WING && st.strikes < MAX_STRIKES) st.strikes++; // the first sortie is on the deck right away
+  if (id === U.CANNON && st.bazooka < MAX_BAZOOKA) st.bazooka++; // and the first rocket
   return id;
 }
 

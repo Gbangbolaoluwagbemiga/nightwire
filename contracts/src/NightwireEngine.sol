@@ -557,6 +557,8 @@ contract NightwireEngine {
         g.up[id]++;
         g.nOffer = 0;
         if (id == U_ORDERS) g.moves += 2; // the extra orders arrive today
+        if (id == U_WING && g.strikes < MAX_STRIKES) g.strikes++; // the first sortie is on the deck right away
+        if (id == U_CANNON && g.bazooka < MAX_BAZOOKA) g.bazooka++; // and the first rocket
         return true;
     }
 
