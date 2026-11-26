@@ -146,12 +146,15 @@ contract NightwireEngine {
         g.maxHp = uint32(hp);
         g.rage = 0;
         g.present = false;
-        uint8 idx = uint8((g.stageNo - 1) % 9); // nine war machines rotate; the ninth is JUGGERNAUT
-        g.btype = idx == 8 ? JUGGERNAUT : idx;
-        g.armor = idx == 8 && g.customBrain == 0 ? uint32(_rdiv(hp * ARMOR_PCT, 100)) : 0; // forged machines carry no plating
+        // twenty war machines, one per stage (src/engine.js BOSSES): each byte is its brain chip, + 0x10 when armoured
+        uint8 m = uint8(ROSTER[(g.stageNo - 1) % 20]);
+        g.btype = m & 0x0f;
+        g.armor = (m & 0x10) != 0 && g.customBrain == 0 ? uint32(_rdiv(hp * ARMOR_PCT, 100)) : 0; // forged machines carry no plating
         g.brain = 0;
     }
 
+    // stage roster: brain chip per war machine, 0x10 = armoured (JUGGERNAUT, LEVIATHAN, ECLIPSE)
+    bytes constant ROSTER = hex"0001000206030504190705140601070003010219";
     uint32 constant RAID_HP = 1_000_000_000;
 
     function _newRun(uint32 seed, bool raid) internal pure returns (G memory g) {

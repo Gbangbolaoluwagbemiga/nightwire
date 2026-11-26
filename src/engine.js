@@ -32,18 +32,32 @@ export const tierOf = (i, v) => (i < 3 ? (v >= 10 ? 2 : v >= 5 ? 1 : 0) : i === 
 // each war machine's signature weapon: it unleashes this once your arsenal is spent and it is still standing
 export const SIGNATURE = ['RAIL CANNON', 'ROCKET PODS', 'BOMB BAY', 'KAMIKAZE DRONES', 'SIEGE SHELLS', 'CARPET BOMBING', 'PLASMA MORTAR', 'ORBITAL LANCE', 'DOOMSDAY ARRAY', 'MAIN GUN'];
 export const ONSLAUGHT_HITS = 5;
+// Twenty war machines, one per stage; after stage 20 they come back as MK 2, MK 3...
+// type = which TapeOut brain chip it thinks with (src/chips.js); art = its hull. sea = fights from the water.
+// sig = its signature weapon, style = how that weapon flies.
 export const BOSSES = [
-  { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0 },
-  { name: 'STORMWING', role: 'attack gunship', color: '#9B8CFF', type: 1 },
-  { name: 'DREADNOUGHT', role: 'armoured airship', color: '#45B4E8', type: 2 },
-  { name: 'HIVE CARRIER', role: 'drone carrier', color: '#FF4FD8', type: 3 },
-  { name: 'BEHEMOTH', role: 'siege tank', color: '#C9A227', type: 4 },
-  { name: 'SPECTRE', role: 'stealth bomber', color: '#7CF2E2', type: 5 },
-  { name: 'TITAN', role: 'spider walker', color: '#FF8F3D', type: 6 },
-  { name: 'WARDEN', role: 'orbital platform', color: '#F2F2FF', type: 7 },
-  { name: 'JUGGERNAUT', role: 'armoured tanker', color: '#9FB4C2', type: 9, armored: true }, // type 8 is OMEGA (raid)
+  { name: 'IRONCLAW', role: 'assault mech', color: '#E0703F', type: 0, sig: 'RAIL CANNON', style: 0 },
+  { name: 'STORMWING', role: 'attack gunship', color: '#9B8CFF', type: 1, fly: true, sig: 'ROCKET PODS', style: 1 },
+  { name: 'RIPTIDE', role: 'missile gunboat', color: '#2EC4B6', type: 0, art: 'gunboat', sea: true, sig: 'SEA SKIMMERS', style: 1 },
+  { name: 'DREADNOUGHT', role: 'armoured airship', color: '#45B4E8', type: 2, fly: true, sig: 'BOMB BAY', style: 2 },
+  { name: 'SCORPION', role: 'desert crawler', color: '#E8B04B', type: 6, art: 'scorpion', sig: 'STINGER LANCE', style: 0 },
+  { name: 'HIVE CARRIER', role: 'drone carrier', color: '#FF4FD8', type: 3, fly: true, sig: 'KAMIKAZE DRONES', style: 3 },
+  { name: 'NAUTILUS', role: 'attack submarine', color: '#3FA9F5', type: 5, art: 'sub', sea: true, sig: 'TORPEDO SPREAD', style: 'torpedo' },
+  { name: 'BEHEMOTH', role: 'siege tank', color: '#C9A227', type: 4, sig: 'SIEGE SHELLS', style: 2 },
+  { name: 'JUGGERNAUT', role: 'armoured tanker', color: '#9FB4C2', type: 9, armored: true, sig: 'MAIN GUN', style: 2 },
+  { name: 'TEMPEST', role: 'storm engine', color: '#7FD1FF', type: 7, art: 'tempest', fly: true, sig: 'CHAIN LIGHTNING', style: 'bolt' },
+  { name: 'SPECTRE', role: 'stealth bomber', color: '#7CF2E2', type: 5, fly: true, sig: 'CARPET BOMBING', style: 2 },
+  { name: 'LEVIATHAN', role: 'armoured battleship', color: '#8FA3B8', type: 4, art: 'battleship', sea: true, armored: true, sig: 'BROADSIDE', style: 2 },
+  { name: 'TITAN', role: 'spider walker', color: '#FF8F3D', type: 6, sig: 'PLASMA MORTAR', style: 1 },
+  { name: 'MANTA', role: 'sea-skimming ray', color: '#B66DFF', type: 1, art: 'manta', sea: true, fly: true, sig: 'ION WAKE', style: 'bolt' },
+  { name: 'WARDEN', role: 'orbital platform', color: '#F2F2FF', type: 7, fly: true, sig: 'ORBITAL LANCE', style: 0 },
+  { name: 'COLOSSUS', role: 'shield titan', color: '#5BE37D', type: 0, art: 'colossus', sig: 'HAMMER FALL', style: 2 },
+  { name: 'TRIDENT', role: 'supercarrier', color: '#4D7CFF', type: 3, art: 'carrier', sea: true, sig: 'JET SORTIE', style: 3 },
+  { name: 'PHOENIX', role: 'firebird', color: '#FF5A1F', type: 1, art: 'phoenix', fly: true, sig: 'FIRESTORM', style: 'fire' },
+  { name: 'KRAKEN', role: 'abyssal mech', color: '#00D1A0', type: 2, art: 'kraken', sea: true, sig: 'TENTACLE SLAM', style: 'torpedo' },
+  { name: 'ECLIPSE', role: 'mothership', color: '#FFD23F', type: 9, art: 'eclipse', fly: true, armored: true, sig: 'SUNBREAKER', style: 0 },
 ];
-// JUGGERNAUT's steel plating: a third of its health again, worn down before the hull takes a scratch.
+// Armoured machines (JUGGERNAUT, LEVIATHAN, ECLIPSE) carry plating: a third of their health again, worn down before the hull takes a scratch.
 // How hard each weapon bites into armour (%): bullets ping off, shells and rockets crack it open.
 export const ARMOR_PCT = 35;
 export const ARMOR_BITE = { 0: 40, 1: 150, 2: 100, bomb: 150, bz: 250 };

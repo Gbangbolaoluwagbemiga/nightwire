@@ -1310,7 +1310,7 @@ function nightEntry(e) {
     case 'strike': S.strikes = e.strikes; syncHud(); break;
     case 'slamfire': { // arsenal spent, war machine still standing: its signature weapon
       if (e.k === 0) {
-        banner(`${E.SIGNATURE[b.type]}!`, `${b.name} unleashes its weapon`);
+        banner(`${sigOf(b)}!`, `${b.name} unleashes its weapon`);
         sfx.siren();
         b.charge = 0.9;
         S.shake = Math.max(S.shake, 6);
@@ -1319,14 +1319,15 @@ function nightEntry(e) {
       NIGHT.tx[`s${e.k}`] = tx;
       b.recoil = 1;
       const sx = S.bp.x + (Math.random() - 0.5) * 60 * S.bp.s, sy = S.bp.y + 26 * S.bp.s;
-      S.proj.push({ kind: 'slam', style: b.type, sx, sy, cx: (sx + tx) / 2 + (b.type === 1 ? (Math.random() - 0.5) * 220 : 0), cy: b.type === 2 ? sy + 20 : sy + 60, tx, ty: BASE_Y - 6, t: 0, d: 0.45, color: b.color });
-      if (b.type === 0) sfx.laser(); else if (b.type === 2) sfx.cannon(); else sfx.missile();
+      const st2 = styleOf(b);
+      S.proj.push({ kind: 'slam', style: st2, sx, sy, cx: st2 === 'torpedo' ? (sx + tx) / 2 : (sx + tx) / 2 + (st2 === 1 || st2 === 'fire' ? (Math.random() - 0.5) * 220 : 0), cy: st2 === 'torpedo' ? BASE_Y + 4 : st2 === 2 ? sy + 20 : st2 === 'bolt' ? (sy + BASE_Y) / 2 : sy + 60, tx, ty: BASE_Y - 6, t: 0, d: st2 === 'torpedo' ? 0.6 : st2 === 'bolt' ? 0.25 : 0.45, color: b.color });
+      if (st2 === 0 || st2 === 'bolt') sfx.laser(); else if (st2 === 2) sfx.cannon(); else sfx.missile();
       break;
     }
     case 'slam':
       S.shield = e.shield;
       S.base = e.base;
-      baseAlert(`${b.name}'s ${E.SIGNATURE[b.type].toLowerCase()}`);
+      baseAlert(`${b.name}'s ${sigOf(b).toLowerCase()}`);
       shotLandsFx(e.absorbed, e.rest, NIGHT.tx[`s${e.k}`] ?? 195, e.shield);
       medicsFx(e);
       break;
@@ -1534,7 +1535,8 @@ function bossDefeated() {
   setTimeout(() => {
     if (S.phase === 'over') return;
     E.nextStage(S);
-    S.bp = { x: 195, y: -80, s: 0.3 };
+    S.bp = S.boss.sea ? { x: W + 170, y: seaHorizon() - 6, s: 0.3 } : { x: 195, y: -80, s: 0.3 }; // ships sail in, the rest drop in
+    if (S.boss.sea) S.boss.age = 2;
     startDay();
     if (E.makeOffer(S)) { showOffer(); return; }
     stageToast();
@@ -1542,7 +1544,7 @@ function bossDefeated() {
 }
 function stageToast() {
   if (S.boss.armorMax) toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b>, full armour. Bullets ping off: stack <b>mortars</b>, airstrikes and <b>bazookas</b> to crack it.`, true, 4600);
-  else toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) inbound`, true, 3000);
+  else toast(`Stage ${S.stageNo}: <b>${S.boss.name}</b> (${S.boss.role}) ${S.boss.sea ? 'coming in from the sea' : 'inbound'}`, true, 3000);
 }
 
 // ================================================================ upgrades: keep one of three after every kill
@@ -1776,7 +1778,8 @@ const inspector = makeInspector($('chipSheet'), {
       return;
     }
     const b = type === 8 ? { name: 'OMEGA' } : E.BOSSES.find((x) => x.type === type), ch = E.brainOf(type).chip;
-    $('chName').textContent = `${b.name} brain`;
+    const now = S.boss && S.boss.type === type && inspectName && !inspectName.startsWith(b.name);
+    $('chName').textContent = now ? `${inspectName} brain (${b.name} chip)` : `${b.name} brain`;
     const where = ONCHAIN && ONCHAIN.processor ? `Circuit #${ONCHAIN.first + type} on TapeOut processor ${ONCHAIN.processor.slice(0, 8)}…, X Layer.` : 'Taped out on X Layer at launch.';
     $('chInfo').textContent = `${c.nand} NAND + ${c.latch} LATCH · ${(ch.netlist.length - 2) / 2}-byte netlist. ${PERSONA[type]} ${where}`;
     document.querySelectorAll('#chSeg button').forEach((x) => x.classList.toggle('on', Number(x.dataset.t) === type));
@@ -2080,6 +2083,10 @@ function update(dt) {
     const tgt = !day ? { x: 195, y: skyY(0.47), s: ks }
       : b.present ? { x: 195 + Math.sin(S.time * 0.6) * 40, y: skyY(0.38 + prog * 0.05), s: (0.72 + prog * 0.18) * ks }
         : { x: 195, y: skyY(0.22 + prog * 0.11), s: (0.36 + prog * 0.24) * ks };
+    if (b.sea) { // ships sit on the water: further away = nearer the horizon
+      const yH = seaHorizon(), depth = !day ? 0.5 : b.present ? 0.34 : 0.06 + prog * 0.2;
+      tgt.y = yH + depth * (BASE_Y - yH) - SEA_WL[artOf(b)] * tgt.s;
+    }
     const f = Math.min(1, dt * (day ? 3 : 2.4));
     S.bp.x += (tgt.x - S.bp.x) * f;
     S.bp.y += (tgt.y - S.bp.y) * f;
@@ -2136,7 +2143,8 @@ function update(dt) {
     p.py = p.y ?? p.sy;
     p.x = bez(p.sx, p.cx, p.tx, t);
     p.y = bez(p.sy, p.cy, p.ty, t);
-    if ((p.kind === 'missile' || p.kind === 'rocket' || p.kind === 'bossShot' || (p.kind === 'slam' && p.style !== 0)) && Math.random() < 0.85) smoke(p.x, p.y, 1);
+    if ((p.kind === 'missile' || p.kind === 'rocket' || p.kind === 'bossShot' || (p.kind === 'slam' && p.style !== 0 && p.style !== 'bolt' && p.style !== 'torpedo')) && Math.random() < 0.85) smoke(p.x, p.y, 1);
+    if (p.kind === 'slam' && p.style === 'torpedo' && Math.random() < 0.9) spark(p.x, p.y, 'rgba(220,240,255,0.8)', 1, 30, 2, 0.4, -40); // bubbles
     if (p.kind === 'shell' && Math.random() < 0.4) smoke(p.x, p.y, 1);
     if (p.t >= 1) {
       S.proj.splice(j, 1);
@@ -2322,6 +2330,20 @@ function drawProjectiles() {
         ctx.globalCompositeOperation = 'source-over';
         ctx.fillStyle = '#59626b'; ctx.fillRect(-8, -2, 16, 4); ctx.fillRect(-2, -7, 4, 14);
         ctx.fillStyle = '#FF4FD8'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, Math.PI * 2); ctx.fill();
+      } else if (p.style === 'torpedo') { // torpedo running in under the swell
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#2b3036'; ctx.beginPath(); ctx.ellipse(0, 0, 12, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = p.color; ctx.fillRect(8, -2, 4, 4);
+      } else if (p.style === 'bolt') { // lightning: a jagged arc back to where it came from
+        ctx.restore(); ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = '#e6f7ff'; ctx.lineWidth = 2.4; ctx.shadowColor = p.color; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.moveTo(p.sx, p.sy);
+        for (let j = 1; j <= 6; j++) { const f = j / 6; ctx.lineTo(p.sx + (p.x - p.sx) * f + (j < 6 ? (Math.random() - 0.5) * 22 : 0), p.sy + (p.y - p.sy) * f); }
+        ctx.stroke();
+      } else if (p.style === 'fire') { // fireball
+        ctx.drawImage(SPR.flame, -26, -12, 30, 24);
+        ctx.drawImage(SPR.red, -12, -12, 24, 24);
       } else if (p.style === 2) { // heavy bomb
         ctx.globalCompositeOperation = 'source-over';
         ctx.fillStyle = '#2b3036'; ctx.beginPath(); ctx.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
@@ -2432,6 +2454,7 @@ function bossShape(type, t, white, col, recoil) {
   const steel = white ? '#fff' : '#59626b', dark = white ? '#fff' : '#2b3036', hi = white ? '#fff' : '#8a949e', acc = white ? '#fff' : col;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  if (typeof type === 'string') return bossShape3(type, t, white, col, recoil, steel, dark, hi, acc);
   if (type >= 4) return bossShape2(type, t, white, col, recoil, steel, dark, hi, acc);
   if (type === 0) { // assault mech walker
     const step = Math.sin(t * 3);
@@ -2657,13 +2680,239 @@ function juggernautShape(t, white, col, recoil, steel, dark, hi, acc) {
   return { ex: 0, ey: -30, er: 8 };
 }
 
+// ================================================================ the new war machines (sea, land and air)
+// Each draws around (0,0) like bossShape and returns its sensor (eye). Sea machines float with their
+// waterline at SEA_WL[art]; the water is painted over everything below it.
+const SEA_WL = { gunboat: 16, sub: 4, battleship: 20, carrier: 18, kraken: 12, manta: 46 };
+const artOf = (b) => (b.art !== undefined ? b.art : b.type);
+const sigOf = (b) => b.sig || E.SIGNATURE[b.type] || 'BARRAGE';
+const styleOf = (b) => (b.style !== undefined ? b.style : b.type);
+function bossShape3(art, t, white, col, recoil, steel, dark, hi, acc) {
+  const glowc = (a) => (white ? '#fff' : rgba(col, a));
+  if (art === 'gunboat') { // RIPTIDE: a fast missile boat, radar spinning, launchers rocking on the swell
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-104, 0); ctx.lineTo(96, 0); ctx.lineTo(122, -6); ctx.lineTo(100, 22); ctx.lineTo(-92, 22); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.moveTo(-100, -2); ctx.lineTo(98, -2); ctx.lineTo(116, -6); ctx.lineTo(100, 8); ctx.lineTo(-96, 8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = acc; ctx.fillRect(-96, 8, 190, 3);
+    ctx.fillStyle = steel; rr(ctx, -30, -30, 56, 28, 5); ctx.fill(); // bridge
+    ctx.fillStyle = white ? '#fff' : '#9fd8ff'; ctx.fillRect(-22, -24, 40, 7);
+    ctx.fillStyle = dark; ctx.fillRect(-4, -48, 4, 18); // mast + spinning radar
+    const rw = Math.cos(t * 5) * 18; ctx.fillStyle = hi; ctx.fillRect(-2 - Math.abs(rw), -52, Math.abs(rw) * 2, 4);
+    for (const lx of [-78, 46]) { // missile launchers, tilting up as they charge
+      ctx.save(); ctx.translate(lx, -4); ctx.rotate(-0.35 - recoil * 0.25);
+      ctx.fillStyle = dark; ctx.fillRect(0, -14, 34, 14);
+      ctx.fillStyle = acc; for (let j = 0; j < 3; j++) ctx.fillRect(30, -12 + j * 4, 5, 3);
+      ctx.restore();
+    }
+    return { ex: 40, ey: -18, er: 6 };
+  }
+  if (art === 'sub') { // NAUTILUS: surfaces to fire, slips under to hide (periscope always up)
+    const b = S.boss, up = S.phase === 'night' || (b && b.charge > 0) ? 1 : 0.5 + 0.5 * Math.sin(t * 0.6);
+    const dive = (1 - up) * 26;
+    ctx.save(); ctx.translate(0, dive);
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, 6, 120, 20, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = hi; ctx.beginPath(); ctx.ellipse(-10, -6, 96, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-28, -10); ctx.lineTo(-20, -44); ctx.lineTo(22, -44); ctx.lineTo(34, -10); ctx.closePath(); ctx.fill(); // sail
+    ctx.fillStyle = dark; ctx.fillRect(-40, -34, 16, 4); ctx.fillRect(28, -34, 16, 4); // dive planes
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-118, 0); ctx.lineTo(-138, -18); ctx.lineTo(-134, 6); ctx.lineTo(-138, 26); ctx.closePath(); ctx.fill(); // tail fin
+    const pr = (t * 30) % 8; ctx.fillStyle = hi; ctx.fillRect(-126, -6 + pr, 3, 6); // prop flicker
+    for (let j = 0; j < 4; j++) { ctx.fillStyle = glowc(0.4 + 0.6 * ((Math.sin(t * 4 + j) + 1) / 2)); ctx.beginPath(); ctx.arc(40 + j * 16, 8, 3.2, 0, Math.PI * 2); ctx.fill(); } // torpedo doors
+    ctx.restore();
+    ctx.fillStyle = dark; ctx.fillRect(4, -74 + dive * 0.2, 3, 34 + dive); ctx.fillRect(4, -76 + dive * 0.2, 12, 4); // periscope
+    ctx.fillStyle = glowc(0.9); ctx.fillRect(14, -76 + dive * 0.2, 3, 4);
+    return { ex: 2, ey: -26 + dive, er: 6 };
+  }
+  if (art === 'battleship') { // LEVIATHAN: three triple turrets, smoke stacks, armour belt that falls away
+    const b = S.boss, af = b && b.armorMax ? Math.max(0, b.armor) / b.armorMax : 1;
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-140, -2); ctx.lineTo(128, -2); ctx.lineTo(152, -14); ctx.lineTo(132, 26); ctx.lineTo(-132, 26); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = steel; ctx.fillRect(-134, -6, 262, 10);
+    const plates = Math.ceil(af * 10 - 1e-6);
+    for (let k2 = 0; k2 < 10; k2++) { if (Math.abs(k2 - 4.5) * 2 >= plates) continue; ctx.fillStyle = white ? '#fff' : '#7d8b96'; ctx.fillRect(-124 + k2 * 25, 6, 22, 12); ctx.fillStyle = white ? '#fff' : '#b9c8d3'; ctx.fillRect(-124 + k2 * 25, 6, 22, 2); }
+    if (!white && af < 1) { ctx.fillStyle = rgba(col, 0.2 + 0.15 * Math.sin(t * 6)); ctx.fillRect(-124, 6, 250, 12); }
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.moveTo(-34, -6); ctx.lineTo(-24, -40); ctx.lineTo(20, -40); ctx.lineTo(32, -6); ctx.closePath(); ctx.fill(); // superstructure
+    ctx.fillStyle = dark; ctx.fillRect(-14, -62, 26, 22); ctx.fillStyle = hi; ctx.fillRect(-10, -58, 18, 4);
+    for (const sx of [38, 56]) { ctx.fillStyle = dark; ctx.fillRect(sx, -34, 12, 28); if (!white && Math.random() < 0.3) smokeAt(sx + 6, -34); }
+    for (const [tx2, ph] of [[-96, 0], [-66, 1], [92, 2]]) { // triple turrets swinging toward the base
+      ctx.save(); ctx.translate(tx2, -8); ctx.rotate(Math.sin(t * 0.6 + ph) * 0.12 - 0.08 * (tx2 < 0 ? -1 : 1)); // barrels elevate and swing
+      ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, 0, 16, 9, 0, Math.PI, 0); ctx.fill();
+      const dir = tx2 < 0 ? -1 : 1; ctx.fillStyle = dark; for (const o of [-5, -1.5, 2]) ctx.fillRect(dir > 0 ? 6 : -36 + recoil * 8, o - 3, 30 - recoil * 8, 2.4); // barrels along the deck
+      ctx.restore();
+    }
+    ctx.fillStyle = acc; ctx.fillRect(-134, 0, 262, 2);
+    return { ex: -2, ey: -50, er: 7 };
+  }
+  if (art === 'carrier') { // TRIDENT: a supercarrier; jets taxi and launch off the bow
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-150, 0); ctx.lineTo(140, 0); ctx.lineTo(156, -10); ctx.lineTo(136, 24); ctx.lineTo(-140, 24); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.moveTo(-154, -10); ctx.lineTo(150, -10); ctx.lineTo(140, 2); ctx.lineTo(-146, 2); ctx.closePath(); ctx.fill(); // flight deck
+    ctx.strokeStyle = white ? '#fff' : '#d8dee4'; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6]); ctx.beginPath(); ctx.moveTo(-140, -4); ctx.lineTo(140, -4); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = steel; rr(ctx, 40, -50, 30, 40, 4); ctx.fill(); ctx.fillStyle = dark; ctx.fillRect(48, -66, 4, 16); // island
+    ctx.fillStyle = white ? '#fff' : '#9fd8ff'; ctx.fillRect(44, -44, 22, 5);
+    const rw = Math.cos(t * 4) * 12; ctx.fillStyle = hi; ctx.fillRect(50 - Math.abs(rw), -68, Math.abs(rw) * 2, 3);
+    for (const jx of [-110, -70]) { ctx.save(); ctx.translate(jx, -16); ctx.scale(1, 0.5); drawJet(ctx, 38, white ? '#fff' : '#8a96a2'); ctx.restore(); } // parked
+    const lt = (t * 0.5) % 1; // one jet taxis, launches off the bow and climbs away
+    ctx.save(); ctx.globalAlpha *= lt < 0.85 ? 1 : (1 - lt) / 0.15; ctx.translate(-40 + lt * 260, -16 - Math.max(0, lt - 0.55) * 160); ctx.rotate(-Math.max(0, lt - 0.55) * 0.9); ctx.scale(1, 0.5); drawJet(ctx, 38, white ? '#fff' : acc); ctx.restore();
+    ctx.fillStyle = acc; ctx.fillRect(-146, 2, 286, 3);
+    return { ex: 55, ey: -30, er: 6 };
+  }
+  if (art === 'kraken') { // KRAKEN: an armoured head rising from the deep, steel tentacles thrashing
+    for (let j = 0; j < 6; j++) {
+      const sd = j < 3 ? -1 : 1, k2 = j % 3, ph = t * 1.6 + j * 1.1;
+      const bx = sd * (40 + k2 * 28), len = 70 + k2 * 10;
+      ctx.strokeStyle = j % 2 ? steel : dark; ctx.lineWidth = 11 - k2 * 2;
+      ctx.beginPath(); ctx.moveTo(bx, 14);
+      ctx.bezierCurveTo(bx + sd * 20, 14 - len * 0.4, bx + sd * (30 + Math.sin(ph) * 30), 14 - len * 0.8, bx + sd * (10 + Math.sin(ph * 1.3) * 34), 14 - len + recoil * 10);
+      ctx.stroke();
+      ctx.fillStyle = glowc(0.8); ctx.beginPath(); ctx.arc(bx + sd * (10 + Math.sin(ph * 1.3) * 34), 14 - len + recoil * 10, 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, 0, 56, 46, 0, Math.PI, 0); ctx.fill(); ctx.fillRect(-56, -1, 112, 16);
+    ctx.fillStyle = dark; for (let j = -2; j <= 2; j++) ctx.fillRect(j * 18 - 2, -40 + Math.abs(j) * 6, 4, 50);
+    ctx.fillStyle = hi; ctx.beginPath(); ctx.ellipse(-12, -30, 22, 6, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = glowc(0.5 + 0.5 * Math.sin(t * 3)); ctx.fillRect(-36, -6, 72, 4);
+    return { ex: 0, ey: -14, er: 11 };
+  }
+  if (art === 'manta') { // MANTA: a giant ray skimming the waves, edges crackling with ions
+    const flap = Math.sin(t * 2.4) * 12;
+    const ray = () => { ctx.beginPath(); ctx.moveTo(0, -30); ctx.quadraticCurveTo(70, -26 - flap, 136, 6 - flap); ctx.quadraticCurveTo(70, 14, 22, 28); ctx.lineTo(0, 22); ctx.lineTo(-22, 28); ctx.quadraticCurveTo(-70, 14, -136, 6 - flap); ctx.quadraticCurveTo(-70, -26 - flap, 0, -30); ctx.closePath(); };
+    ray(); ctx.fillStyle = white ? '#fff' : '#26213a'; ctx.fill();
+    ctx.strokeStyle = glowc(0.6 + 0.4 * Math.sin(t * 9)); ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.strokeStyle = dark; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, 24); ctx.quadraticCurveTo(Math.sin(t * 3) * 20, 60, Math.sin(t * 3 + 1) * 30, 84); ctx.stroke(); // tail
+    ctx.fillStyle = hi; ctx.beginPath(); ctx.ellipse(0, -8, 26, 12, 0, 0, Math.PI * 2); ctx.fill();
+    for (const sd of [-1, 1]) { ctx.fillStyle = glowc(0.9); ctx.beginPath(); ctx.arc(sd * 14, -18, 3, 0, Math.PI * 2); ctx.fill(); }
+    return { ex: 0, ey: -6, er: 7 };
+  }
+  if (art === 'scorpion') { // SCORPION: eight legs scuttling, tail curled over with a charged stinger
+    for (let j = 0; j < 8; j++) {
+      const sd = j < 4 ? -1 : 1, k2 = j % 4, ph = t * 6 + k2 * 1.6 + (sd > 0 ? Math.PI : 0), lift = Math.max(0, Math.sin(ph)) * 7;
+      ctx.strokeStyle = k2 % 2 ? steel : dark; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(sd * 20, 6 + k2 * 6); ctx.lineTo(sd * (58 + k2 * 6), -6 + k2 * 6 - lift); ctx.lineTo(sd * (74 + k2 * 8), 34 + k2 * 4 - lift * 0.5); ctx.stroke();
+    }
+    for (const sd of [-1, 1]) { // pincers
+      ctx.save(); ctx.translate(sd * 46, 30); ctx.rotate(sd * (0.3 + Math.sin(t * 2) * 0.15));
+      ctx.fillStyle = steel; rr(ctx, -8, 0, 16, 26, 6); ctx.fill();
+      ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-8, 26); ctx.lineTo(-14, 44); ctx.lineTo(-2, 30); ctx.moveTo(8, 26); ctx.lineTo(14, 44); ctx.lineTo(2, 30); ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, 10, 40, 24, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = acc; ctx.fillRect(-30, 4, 60, 4);
+    let px = 0, py = -6; // tail: segments arching up and over
+    for (let j = 0; j < 6; j++) {
+      const a = -Math.PI / 2 + (j / 5) * 2.4 + Math.sin(t * 1.5) * 0.12 - recoil * 0.3;
+      px += Math.cos(a) * 15; py += Math.sin(a) * 15;
+      ctx.fillStyle = j % 2 ? steel : dark; ctx.beginPath(); ctx.arc(px, py, 10 - j, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = glowc(0.6 + 0.4 * Math.sin(t * 6)); ctx.beginPath(); ctx.moveTo(px, py - 4); ctx.lineTo(px + 6, py + 14); ctx.lineTo(px - 6, py + 6); ctx.closePath(); ctx.fill();
+    return { ex: 0, ey: 14, er: 7 };
+  }
+  if (art === 'tempest') { // TEMPEST: a storm engine, rotor ring spinning around a lightning core
+    ctx.fillStyle = white ? '#fff' : '#3a4250';
+    for (let j = 0; j < 7; j++) { const a = j * 0.9 + t * 0.3; ctx.beginPath(); ctx.arc(Math.cos(a) * 70, -18 + Math.sin(a) * 10, 26 + (j % 3) * 6, 0, Math.PI * 2); ctx.fill(); } // storm cloud
+    ctx.strokeStyle = steel; ctx.lineWidth = 6; ctx.beginPath(); ctx.ellipse(0, 0, 92, 22, 0, 0, Math.PI * 2); ctx.stroke();
+    for (let j = 0; j < 6; j++) { const a = t * 3 + j * Math.PI / 3; ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(Math.cos(a) * 92, Math.sin(a) * 22, 6, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = glowc(0.6 + 0.4 * Math.sin(t * 8)); ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
+    if (!white && Math.sin(t * 7) > 0.6) { // arcs jumping off the ring
+      ctx.strokeStyle = '#dff6ff'; ctx.lineWidth = 2; ctx.beginPath();
+      let x = 0, y = 0; const a = (Math.floor(t * 7) * 2.3) % (Math.PI * 2); ctx.moveTo(0, 0);
+      for (let j = 0; j < 5; j++) { x += Math.cos(a) * 20 + (Math.random() - 0.5) * 14; y += Math.sin(a) * 6 + (Math.random() - 0.5) * 14; ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    return { ex: 0, ey: 0, er: 9 };
+  }
+  if (art === 'colossus') { // COLOSSUS: a giant with a tower shield and a war hammer
+    const step = Math.sin(t * 2);
+    for (const sd of [-1, 1]) { ctx.strokeStyle = steel; ctx.lineWidth = 14; ctx.beginPath(); ctx.moveTo(sd * 18, 30); ctx.lineTo(sd * 26, 58 - sd * step * 4); ctx.lineTo(sd * 22, 86 - sd * step * 4); ctx.stroke(); ctx.fillStyle = dark; ctx.fillRect(sd * 22 - 14, 84 - sd * step * 4, 28, 8); }
+    ctx.fillStyle = steel; rr(ctx, -36, -40, 72, 76, 14); ctx.fill();
+    ctx.fillStyle = dark; ctx.fillRect(-36, 6, 72, 7); ctx.fillStyle = hi; ctx.fillRect(-30, -36, 60, 4);
+    ctx.fillStyle = dark; rr(ctx, -16, -64, 32, 26, 8); ctx.fill();
+    ctx.fillStyle = glowc(0.8); ctx.fillRect(-10, -54, 20, 4);
+    ctx.save(); ctx.translate(-58, 0); // tower shield, energy rim
+    ctx.fillStyle = white ? '#fff' : '#3c4a40'; rr(ctx, -20, -46, 40, 96, 10); ctx.fill();
+    ctx.strokeStyle = glowc(0.5 + 0.5 * Math.sin(t * 4)); ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = acc; ctx.fillRect(-4, -36, 8, 76);
+    ctx.restore();
+    ctx.save(); ctx.translate(52, -10); ctx.rotate(-0.9 + recoil * 1.6 + Math.sin(t * 1.2) * 0.1); // hammer
+    ctx.fillStyle = dark; ctx.fillRect(-4, -70, 8, 80);
+    ctx.fillStyle = steel; rr(ctx, -22, -92, 44, 26, 5); ctx.fill(); ctx.fillStyle = acc; ctx.fillRect(-22, -82, 44, 5);
+    ctx.restore();
+    return { ex: 0, ey: -50, er: 7 };
+  }
+  if (art === 'phoenix') { // PHOENIX: a mechanical firebird, flaming feathers trailing
+    const flap = Math.sin(t * 4);
+    for (const sd of [-1, 1]) {
+      ctx.save(); ctx.scale(sd, 1); ctx.rotate(-flap * 0.35);
+      for (let j = 0; j < 5; j++) { // feathers
+        const fx = 20 + j * 22, fy = -10 + j * 4;
+        ctx.fillStyle = white ? '#fff' : j % 2 ? '#7a2a10' : steel;
+        ctx.beginPath(); ctx.moveTo(fx - 10, fy); ctx.lineTo(fx + 14, fy - 30 + j * 4); ctx.lineTo(fx + 12, fy + 10); ctx.closePath(); ctx.fill();
+        if (!white) { ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(SPR.flame, fx + 4, fy - 6, 14, 18); ctx.globalCompositeOperation = 'source-over'; }
+      }
+      ctx.restore();
+    }
+    ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, 0, 22, 36, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-8, -30); ctx.lineTo(0, -54); ctx.lineTo(8, -30); ctx.closePath(); ctx.fill(); // crest
+    ctx.fillStyle = acc; ctx.beginPath(); ctx.moveTo(-6, 30); ctx.lineTo(0, 70 + Math.sin(t * 6) * 6); ctx.lineTo(6, 30); ctx.closePath(); ctx.fill(); // tail flame
+    if (!white) { ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(SPR.flame, -12, 30, 24, 40); ctx.globalCompositeOperation = 'source-over'; }
+    return { ex: 0, ey: -16, er: 7 };
+  }
+  // ECLIPSE: the mothership, a dark disc in a burning corona, ring segments turning
+  if (!white) { ctx.globalCompositeOperation = 'lighter'; const keep = ctx.globalAlpha; ctx.globalAlpha = keep * (0.5 + 0.3 * Math.sin(t * 2)); ctx.drawImage(SPR.dot[col] || SPR.red, -170, -120, 340, 240); ctx.globalAlpha = keep; ctx.globalCompositeOperation = 'source-over'; }
+  const b = S.boss, af = b && b.armorMax ? Math.max(0, b.armor) / b.armorMax : 1;
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(0, 0, 150, 34, 0, 0, Math.PI * 2); ctx.fill();
+  const segs = Math.ceil(af * 12 - 1e-6);
+  for (let j = 0; j < 12; j++) { // armour ring: segments drop out as the plating breaks
+    if (j >= segs) continue;
+    const a0 = t * 0.4 + j * Math.PI / 6;
+    ctx.strokeStyle = white ? '#fff' : j % 2 ? steel : hi; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.ellipse(0, 0, 138, 28, 0, a0, a0 + 0.42); ctx.stroke();
+  }
+  ctx.fillStyle = steel; ctx.beginPath(); ctx.ellipse(0, -8, 70, 26, 0, Math.PI, 0); ctx.fill();
+  for (let j = -4; j <= 4; j++) { ctx.fillStyle = glowc(0.4 + 0.6 * Math.max(0, Math.sin(t * 5 - j))); ctx.fillRect(j * 14 - 3, 10, 6, 4); }
+  ctx.fillStyle = white ? '#fff' : '#120c02'; ctx.beginPath(); ctx.arc(0, 18, 18, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = glowc(0.95); ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 18, 18 + recoil * 6, 0, Math.PI * 2); ctx.stroke();
+  return { ex: 0, ey: 18, er: 9 };
+}
+function smokeAt(lx, ly) { // smoke from a point on the boss (local coords)
+  const b = S.bp;
+  if (b) smoke(b.x + lx * b.s, b.y + ly * b.s, 1);
+}
+
+// the sea: a coast in front of the city for the machines that fight from the water
+const seaHorizon = () => Math.min(skyY(0.56), DAY.base - 12); // never below the city line, even when the board drops at night
+function drawSeaBack(night) {
+  const yH = seaHorizon(), g = ctx.createLinearGradient(0, yH, 0, BASE_Y);
+  if (night) { g.addColorStop(0, '#1a1018'); g.addColorStop(0.25, '#0b1622'); g.addColorStop(1, '#04080e'); }
+  else { g.addColorStop(0, '#6f8a8c'); g.addColorStop(0.2, '#2b5a68'); g.addColorStop(1, '#0f2b36'); }
+  ctx.fillStyle = g; ctx.fillRect(0, yH, W, BASE_Y - yH + 2);
+  ctx.strokeStyle = night ? 'rgba(255,120,80,0.16)' : 'rgba(220,240,255,0.18)'; ctx.lineWidth = 1;
+  for (let j = 0; j < 9; j++) { // swells, closer ones longer and faster
+    const f = j / 8, y = yH + 3 + f * f * (BASE_Y - yH - 6), len = 20 + f * 60, sp = 8 + f * 30;
+    for (let x = ((S.time * sp + j * 37) % (len * 2)) - len * 2; x < W; x += len * 2) { ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + len / 2, y - 1.5 - f * 2, x + len, y); ctx.stroke(); }
+  }
+}
+function drawSeaFront(b, wlY, night) { // water over the hull below its waterline, foam and a wake
+  if (wlY >= BASE_Y) return;
+  const g = ctx.createLinearGradient(0, wlY, 0, BASE_Y);
+  g.addColorStop(0, night ? 'rgba(10,22,34,0.82)' : 'rgba(30,80,96,0.8)');
+  g.addColorStop(1, night ? 'rgba(4,8,14,0.95)' : 'rgba(15,43,54,0.95)');
+  ctx.fillStyle = g; ctx.fillRect(0, wlY, W, BASE_Y - wlY + 2);
+  const s = S.bp.s, x = S.bp.x, hw = (artOf(b) === 'manta' ? 90 : 140) * s;
+  ctx.fillStyle = 'rgba(235,248,255,0.55)';
+  for (let j = 0; j < 14; j++) { // foam along the hull
+    const fx = x - hw + ((j * 41 + S.time * 26) % (hw * 2)), fy = wlY + Math.sin(S.time * 3 + j) * 1.5;
+    ctx.beginPath(); ctx.ellipse(fx, fy, 6 * s + 2, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(235,248,255,0.25)'; ctx.lineWidth = 1.2; // V-wake behind
+  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x - hw * 0.9 * sd, wlY + 1); ctx.lineTo(x - (hw + 60) * sd, wlY + 10 + 14 * s); ctx.stroke(); }
+  if (b.color) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.18; ctx.fillStyle = b.color; ctx.fillRect(x - hw * 0.6, wlY + 3, hw * 1.2, 2); ctx.fillRect(x - hw * 0.4, wlY + 9, hw * 0.8, 1.5); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+}
+
 const FLYERS = new Set([1, 2, 3, 5, 7, 8]);
 function drawBoss() {
   const b = S.boss;
   if (!b) return;
   const { x, y, s } = S.bp;
-  const t = S.time, bob = Math.sin(t * 1.8) * 5;
+  const t = S.time, art = artOf(b), night = S.nb > 0.5, bob = b.sea && art !== 'manta' ? Math.sin(t * 1.4) * 1.5 : Math.sin(t * 1.8) * 5;
   const sh = b.dying >= 0 ? (Math.random() - 0.5) * 8 : 0;
+  if (b.sea) drawSeaBack(night);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, SKY_TOP + 20, W, BASE_Y - SKY_TOP - 20);
@@ -2679,10 +2928,12 @@ function drawBoss() {
     ctx.globalCompositeOperation = 'source-over';
   }
   ctx.globalAlpha = S.phase === 'night' || b.dying >= 0 || b.present ? 1 : 0.85;
-  ctx.translate(x + sh, y + bob + sh);
+  const sink = b.sea && b.dying >= 0 ? (1 - b.dying / 2.2) * 70 * s : 0; // destroyed ships go down by the bow
+  ctx.translate(x + sh, y + bob + sh + sink);
   ctx.scale(s, s);
+  if (sink) ctx.rotate(sink * 0.004);
   const hurt = 1 - b.hp / b.max;
-  if (FLYERS.has(b.type)) {
+  if ((b.fly !== undefined ? b.fly : FLYERS.has(b.type)) && !b.sea) {
     ctx.rotate(Math.sin(t * 2.1) * 0.05 * hurt); // a damaged flyer wobbles
     ctx.globalCompositeOperation = 'lighter'; // thrusters
     for (const tx of [-34, 34]) { const f = 14 + Math.random() * 8; ctx.drawImage(SPR.flame, tx - f / 2, 30, f, f * 1.6); }
@@ -2690,11 +2941,12 @@ function drawBoss() {
   }
   const warp = Math.min(1, (b.age || 0) / 1.3); // entrance: materialises top to bottom behind a scanline
   if (warp < 1) { ctx.save(); ctx.beginPath(); ctx.rect(-180, -140, 360, 280 * warp); ctx.clip(); }
-  const eye = bossShape(b.type, t, false, b.color, b.recoil);
+  if (b.sea) ctx.rotate(Math.sin(t * 1.1) * 0.025); // rocking on the swell
+  const eye = bossShape(art, t, false, b.color, b.recoil);
   if (b.flash > 0) {
     const keep = ctx.globalAlpha;
     ctx.globalAlpha = keep * 0.5 * Math.min(1, b.flash / 0.08);
-    bossShape(b.type, t, true, b.color, b.recoil);
+    bossShape(art, t, true, b.color, b.recoil);
     ctx.globalAlpha = keep;
   }
   if (warp < 1) {
@@ -2721,6 +2973,7 @@ function drawBoss() {
   ctx.beginPath(); ctx.arc(eye.ex, eye.ey, eye.er * 0.45, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
   ctx.globalAlpha = 1;
+  if (b.sea) drawSeaFront(b, S.bp.y + SEA_WL[art] * S.bp.s, night);
 }
 
 function drawTurret(w, tier, pulse) {
